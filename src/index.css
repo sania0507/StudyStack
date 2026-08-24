@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/*
+  ============================================================
+  StudyStack design tokens
+  ============================================================
+  Instead of scattering hex codes all over your components, we
+  name every colour ONCE here. Then in JSX you write
+  `bg-card` / `text-muted` and never think about hex again.
+
+  If you later decide StudyStack should be blue instead of
+  purple, you change 3 lines in this file and the whole app
+  follows. That is the entire point of design tokens.
+*/
+@theme {
+  /* surfaces — near-black charcoal, then progressively lighter */
+  --color-base: oklch(0.16 0.012 296); /* page background */
+  --color-surface: oklch(0.2 0.016 296); /* cards */
+  --color-elevated: oklch(0.245 0.02 296); /* inputs, hovered cards */
+  --color-line: oklch(0.31 0.022 296); /* borders */
+
+  /* text */
+  --color-ink: oklch(0.96 0.008 300); /* warm white — headings */
+  --color-muted: oklch(0.7 0.025 296); /* gray-lavender — body */
+  --color-faint: oklch(0.55 0.022 296); /* labels, captions */
+
+  /* accents */
+  --color-violet: oklch(0.62 0.19 295); /* primary purple */
+  --color-violet-soft: oklch(0.72 0.12 295); /* muted lavender */
+  --color-mint: oklch(0.78 0.13 165); /* soft green — success */
+
+  /* type — two families only: Outfit for display, Inter for body */
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1.125rem;
+}
+
+@layer base {
+  html {
+    background-color: var(--color-base);
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-base);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Consistent focus ring for keyboard users — accessibility, not decoration. */
+  :focus-visible {
+    outline: 2px solid var(--color-violet-soft);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-violet) 40%, transparent);
+  }
+}
+
+/* A couple of tiny animations we reuse. Defined once, used anywhere. */
+@keyframes ss-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ss-rise {
+  animation: ss-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
