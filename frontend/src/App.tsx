@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom"
 import { AuthProvider } from "@/context/AuthContext"
+import { DomainsProvider } from "@/context/DomainsContext"
+import { ThemeProvider } from "@/context/ThemeContext"
 import { TimerProvider } from "@/context/TimerContext"
 import AppLayout from "@/components/AppLayout"
 import ProtectedRoute from "@/components/ProtectedRoute"
@@ -41,27 +43,31 @@ import Profile from "@/pages/Profile"
 */
 export default function App() {
   return (
-    <AuthProvider>
-      <TimerProvider>
-        <Routes>
-          {/* ---------- public ---------- */}
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <DomainsProvider>
+          <TimerProvider>
+            <Routes>
+              {/* ---------- public ---------- */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
 
-          {/* ---------- private ---------- */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<AppLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="/profile" element={<Profile />} />
-            </Route>
-          </Route>
+              {/* ---------- private ---------- */}
+              <Route element={<ProtectedRoute />}>
+                <Route element={<AppLayout />}>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/profile" element={<Profile />} />
+                </Route>
+              </Route>
 
-          {/* Anything unrecognised goes home. */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </TimerProvider>
-    </AuthProvider>
+              {/* Anything unrecognised goes home. */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </TimerProvider>
+        </DomainsProvider>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }

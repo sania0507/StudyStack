@@ -1,7 +1,8 @@
-import { domains, recentSessions, stats, weekdayMinutes } from "@/api/mock"
-import { Avatar, Card, StatCard, cx } from "@/components/ui"
+import { recentSessions, stats, weekdayMinutes } from "@/api/mock"
+import { Avatar, Card, StatCard, StackBar } from "@/components/ui"
 import Heatmap from "@/components/Heatmap"
 import { useAuth } from "@/context/AuthContext"
+import { useDomains } from "@/context/DomainsContext"
 
 /*
   ============================================================
@@ -33,8 +34,10 @@ function timeAgo(iso: string) {
 
 export default function Analytics() {
   const { user } = useAuth()
+  const { domains } = useDomains()
   const peak = Math.max(...weekdayMinutes.map((d) => d.minutes))
   const totalWeek = weekdayMinutes.reduce((s, d) => s + d.minutes, 0)
+  const domainTotal = domains.reduce((s, d) => s + d.minutesThisWeek, 0)
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,16 +61,16 @@ export default function Analytics() {
           progress={Math.min(1, stats.streakDays / 50)}
         />
         <StatCard
-          label="Missed days this week"
-          value={`${stats.missedThisWeek} / 7`}
-          caption={`${7 - stats.missedThisWeek} days with sessions`}
+          label="Days with sessions"
+          value={`${7 - stats.missedThisWeek} / 7`}
+          caption={`${7 - stats.missedThisWeek} days with sessions this week`}
           progress={(7 - stats.missedThisWeek) / 7}
         />
       </div>
 
       {/* ---------------- heatmap ---------------- */}
       <section className="flex flex-col gap-3">
-        <h2 className="font-display text-base font-semibold text-ink">Your deep work</h2>
+        <h2 className="font-display text-base font-semibold text-ink">Days you showed up</h2>
         <Card>
           <Heatmap />
         </Card>
@@ -86,13 +89,14 @@ export default function Analytics() {
           <div className="flex h-40 items-end gap-2 sm:gap-3">
             {weekdayMinutes.map((d) => (
               <div key={d.day} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                <span className="text-[10px] tabular-nums text-faint">{d.minutes}</span>
+                <span className="text-xs tabular-nums text-faint">{d.minutes}</span>
                 <div
                   className="w-full rounded-t-md bg-violet/80 transition-all duration-700 hover:bg-violet"
                   style={{ height: `${(d.minutes / peak) * 100}%` }}
-                  title={`${d.day}: ${formatMinutes(d.minutes)}`}
+                  role="img"
+                  aria-label={`${d.day}: ${formatMinutes(d.minutes)}`}
                 />
-                <span className="text-[11px] text-faint">{d.day}</span>
+                <span className="text-xs text-faint">{d.day}</span>
               </div>
             ))}
           </div>
@@ -102,23 +106,17 @@ export default function Analytics() {
           <h2 className="font-display text-base font-semibold text-ink">By domain</h2>
           <div className="flex flex-col gap-4">
             {domains.map((d) => {
-              const total = domains.reduce((s, x) => s + x.minutesThisWeek, 0)
-              const share = d.minutesThisWeek / total
+              const share = domainTotal === 0 ? 0 : d.minutesThisWeek / domainTotal
               return (
                 <div key={d.id} className="flex flex-col gap-2">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-sm text-ink">{d.name}</span>
                     <span className="shrink-0 text-xs tabular-nums text-faint">{Math.round(share * 100)}%</span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
-                    <div
-                      className={cx(
-                        "h-full rounded-full transition-[width] duration-700",
-                        d.colour === "mint" ? "bg-mint" : d.colour === "violet-soft" ? "bg-violet-soft" : "bg-violet",
-                      )}
-                      style={{ width: `${share * 100}%` }}
-                    />
-                  </div>
+                  <StackBar
+                    progress={share}
+                    colour={d.colour === "mint" ? "bg-mint" : d.colour === "violet-soft" ? "bg-violet-soft" : "bg-violet"}
+                  />
                 </div>
               )
             })}
@@ -138,7 +136,7 @@ export default function Analytics() {
                   You completed {formatMinutes(s.minutes)} of deep work in{" "}
                   <span className="text-violet-soft">{domains.find((d) => d.id === s.domainId)?.name}</span>
                 </p>
-                <p className="mt-0.5 text-[11px] text-faint">{timeAgo(s.finishedAt)}</p>
+                <p className="mt-0.5 text-xs text-faint">{timeAgo(s.finishedAt)}</p>
               </div>
             </div>
           ))}

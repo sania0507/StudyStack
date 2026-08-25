@@ -31,14 +31,8 @@ export default function AuthShell({
   footer: ReactNode
 }) {
   return (
-    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-base px-5 py-10">
-      {/* one soft glow, top-left — the only decoration on this screen */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -left-24 -top-32 h-80 w-80 rounded-full bg-violet/15 blur-[100px]"
-      />
-
-      <div className="ss-rise relative w-full max-w-sm">
+    <div className="grid min-h-dvh place-items-center bg-base px-5 py-10">
+      <div className="ss-rise w-full max-w-sm">
         <Link to="/" className="mb-8 flex justify-center">
           <Logo size="lg" />
         </Link>

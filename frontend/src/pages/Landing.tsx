@@ -90,12 +90,6 @@ export default function Landing() {
         {/* ---- the signature element: a fake timer that sells the idea ---- */}
         <div className="ss-rise mt-14 sm:mt-20" style={{ animationDelay: "120ms" }}>
           <Card className="relative overflow-hidden">
-            {/* soft glow behind the ring — the one decorative flourish */}
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -left-16 -top-24 h-72 w-72 rounded-full bg-violet/20 blur-[90px]"
-            />
-
             <div className="relative flex flex-col items-center gap-8 py-6 sm:flex-row sm:items-center sm:gap-12 sm:px-6">
               <div className="relative grid h-40 w-40 shrink-0 place-items-center">
                 <svg viewBox="0 0 180 180" className="h-full w-full -rotate-90">
@@ -116,7 +110,7 @@ export default function Landing() {
                   <span className="font-display text-3xl font-semibold tabular-nums tracking-tight text-ink">
                     41:12
                   </span>
-                  <span className="mt-1 text-[10px] uppercase tracking-[0.18em] text-faint">focusing</span>
+                  <span className="mt-1 text-xs text-faint">focusing</span>
                 </div>
               </div>
 
@@ -128,10 +122,6 @@ export default function Landing() {
                   <Pill tone="neutral">11h 22m this month</Pill>
                   <Pill tone="neutral">4 domains</Pill>
                 </div>
-                <div className="mt-1 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-elevated">
-                  <div className="h-full w-[68%] rounded-full bg-violet" />
-                </div>
-                <span className="text-xs text-faint">68% of this week&apos;s 15h goal</span>
               </div>
             </div>
           </Card>

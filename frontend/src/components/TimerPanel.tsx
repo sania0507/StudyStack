@@ -1,17 +1,19 @@
+import { useState } from "react"
 import { Pause, Play, RotateCcw } from "lucide-react"
 import { useTimer, formatClock } from "@/context/TimerContext"
-import { domains } from "@/api/mock"
+import { useDomains } from "@/context/DomainsContext"
 import { Button, Card, cx } from "@/components/ui"
 
 /*
   ============================================================
-  TimerPanel — reads the shared timer, owns no state itself
+  TimerPanel — reads the shared timer, owns only its editor UI
   ============================================================
-  Notice this component has NO useState. It's a "presentational"
-  component: it asks the context for the numbers and draws them.
+  The countdown itself lives in TimerContext so it survives page
+  changes. The only local state here is the custom-time editor
+  (open/closed, hours, minutes) — UI state, not timer state.
 
-  That separation is why the same panel can appear on the
-  dashboard, analytics AND profile page and always agree.
+  Click the clock to set any duration. The 25m / 1h / 2h presets
+  stay one tap away underneath.
 */
 
 const PRESETS = [
@@ -21,14 +23,45 @@ const PRESETS = [
 ]
 
 export default function TimerPanel() {
-  const { secondsLeft, totalSeconds, isRunning, domainId, setDomainId, setPreset, start, pause, reset, completedCount } =
-    useTimer()
+  const {
+    secondsLeft,
+    totalSeconds,
+    isRunning,
+    domainId,
+    setDomainId,
+    setPreset,
+    setCustomSeconds,
+    start,
+    pause,
+    reset,
+    completedCount,
+  } = useTimer()
+  const { domains } = useDomains()
+
+  // Custom-time editor state.
+  const [editing, setEditing] = useState(false)
+  const [editH, setEditH] = useState(1)
+  const [editM, setEditM] = useState(0)
 
   // Maths for the SVG ring: stroke-dashoffset draws a partial circle.
   const radius = 78
   const circumference = 2 * Math.PI * radius
   const progress = totalSeconds === 0 ? 0 : 1 - secondsLeft / totalSeconds
   const dashOffset = circumference * (1 - progress)
+
+  function openEditor() {
+    setEditH(Math.floor(totalSeconds / 3600))
+    setEditM(Math.floor((totalSeconds % 3600) / 60))
+    setEditing(true)
+  }
+
+  function applyCustom(e: React.FormEvent) {
+    e.preventDefault()
+    const total = editH * 3600 + editM * 60
+    if (total <= 0) return
+    setCustomSeconds(total)
+    setEditing(false)
+  }
 
   return (
     <Card className="flex flex-col gap-5">
@@ -51,12 +84,53 @@ export default function TimerPanel() {
         </svg>
 
         <div className="absolute flex flex-col items-center">
-          <span className="font-display text-[2.75rem] font-semibold tabular-nums leading-none tracking-tight text-ink">
-            {formatClock(secondsLeft)}
-          </span>
-          <span className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-faint">
-            {isRunning ? "focusing" : secondsLeft === 0 ? "done" : "paused"}
-          </span>
+          {editing ? (
+            <form onSubmit={applyCustom} className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-1 text-ink">
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={editH}
+                  onChange={(e) => setEditH(Math.max(0, Number(e.target.value)))}
+                  aria-label="Hours"
+                  className="h-9 w-12 rounded-lg border border-line bg-elevated text-center text-sm tabular-nums text-ink focus:border-violet-soft/60 focus:outline-none"
+                />
+                <span className="text-sm text-faint">:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={editM}
+                  onChange={(e) => setEditM(Math.max(0, Number(e.target.value)))}
+                  aria-label="Minutes"
+                  className="h-9 w-12 rounded-lg border border-line bg-elevated text-center text-sm tabular-nums text-ink focus:border-violet-soft/60 focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-1.5">
+                <Button type="submit" size="sm" disabled={editH * 60 + editM <= 0}>
+                  Set
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={openEditor}
+              aria-label="Edit timer duration"
+              className="flex flex-col items-center rounded-xl px-3 py-1 transition-colors hover:bg-elevated"
+            >
+              <span className="font-display text-[2.75rem] font-semibold tabular-nums leading-none tracking-tight text-ink">
+                {formatClock(secondsLeft)}
+              </span>
+              <span className="mt-1.5 text-xs text-faint">
+                {isRunning ? "focusing" : secondsLeft === 0 ? "done" : "paused"}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -99,6 +173,7 @@ export default function TimerPanel() {
           )
         })}
       </div>
+      <p className="-mt-3 text-center text-xs text-faint">Click the clock to set a custom time.</p>
 
       {/* ---- controls ---- */}
       <div className="flex gap-2">

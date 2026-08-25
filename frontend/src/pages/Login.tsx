@@ -100,10 +100,6 @@ export default function Login() {
           {busy ? "Signing in…" : "Log in"}
           {!busy && <ArrowRight size={16} />}
         </Button>
-
-        <p className="text-center text-xs leading-relaxed text-faint">
-          Frontend demo — any email and a 6-character password will let you in.
-        </p>
       </form>
     </AuthShell>
   )

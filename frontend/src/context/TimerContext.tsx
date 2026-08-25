@@ -26,6 +26,7 @@ type TimerValue = {
   completedCount: number
   setDomainId: (id: string) => void
   setPreset: (minutes: number) => void
+  setCustomSeconds: (seconds: number) => void
   start: () => void
   pause: () => void
   reset: () => void
@@ -41,36 +42,78 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const [completedCount, setCompletedCount] = useState(0)
 
   // useRef holds a value that survives re-renders but does NOT trigger one.
-  // Perfect for storing an interval id.
   const tickRef = useRef<number | null>(null)
+  const audioRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
     // This effect runs whenever `isRunning` flips.
     if (!isRunning) return
 
     tickRef.current = window.setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          setIsRunning(false)
-          setCompletedCount((c) => c + 1)
-          return 0
-        }
-        return s - 1
-      })
+      // Pure updater: just count down. The "finished" side effects live
+      // in their own effect below so they run exactly once per finish.
+      setSecondsLeft((s) => Math.max(0, s - 1))
     }, 1000)
 
-    // The returned function is CLEANUP. React calls it before the effect
-    // re-runs and when the component unmounts. Forgetting this is the
-    // #1 cause of "my timer speeds up" bugs — you stack intervals.
+    // Cleanup clears the interval before re-runs and on unmount. Forgetting
+    // this is the #1 cause of "my timer speeds up" bugs.
     return () => {
       if (tickRef.current) window.clearInterval(tickRef.current)
     }
   }, [isRunning])
 
-  function setPreset(minutes: number) {
-    const secs = Math.round(minutes * 60)
-    setTotalSeconds(secs)
-    setSecondsLeft(secs)
+  // When the clock hits zero while running: stop, record the block, beep.
+  useEffect(() => {
+    if (secondsLeft === 0 && isRunning) {
+      setIsRunning(false)
+      setCompletedCount((c) => c + 1)
+      beep()
+    }
+  }, [secondsLeft, isRunning])
+
+  /** Lazily create/resume an AudioContext. Browsers require a user gesture,
+      so we resume it inside start() — which is always a click. */
+  function ensureAudio() {
+    if (typeof window === "undefined") return null
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctx) return null
+    if (!audioRef.current) audioRef.current = new Ctx()
+    if (audioRef.current.state === "suspended") void audioRef.current.resume()
+    return audioRef.current
+  }
+
+  /** Two short tones — enough to notice, not enough to annoy. */
+  function beep() {
+    try {
+      const ctx = ensureAudio()
+      if (!ctx) return
+      const t = ctx.currentTime
+      const tone = (freq: number, start: number, dur: number) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = "sine"
+        osc.frequency.value = freq
+        gain.gain.setValueAtTime(0.0001, t + start)
+        gain.gain.exponentialRampToValueAtTime(0.25, t + start + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + start + dur)
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.start(t + start)
+        osc.stop(t + start + dur + 0.02)
+      }
+      tone(880, 0, 0.25)
+      tone(659, 0.35, 0.4)
+    } catch {
+      // Audio blocked by the browser — the timer still completes silently.
+    }
+  }
+
+  function applySeconds(secs: number) {
+    const s = Math.max(0, Math.round(secs))
+    setTotalSeconds(s)
+    setSecondsLeft(s)
     setIsRunning(false)
   }
 
@@ -82,8 +125,14 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       domainId,
       completedCount,
       setDomainId,
-      setPreset,
-      start: () => secondsLeft > 0 && setIsRunning(true),
+      setPreset: (minutes: number) => applySeconds(minutes * 60),
+      setCustomSeconds: applySeconds,
+      start: () => {
+        if (secondsLeft > 0) {
+          ensureAudio() // user gesture — let the browser hear us before the beep
+          setIsRunning(true)
+        }
+      },
       pause: () => setIsRunning(false),
       reset: () => {
         setIsRunning(false)

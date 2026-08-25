@@ -36,11 +36,20 @@ export type Domain = {
   minutesThisWeek: number
 }
 
+export type Subtask = {
+  id: string
+  title: string
+  completed: boolean
+}
+
 export type Task = {
   id: string
   domainId: string
   title: string
   completed: boolean
+  dueDate?: string // "YYYY-MM-DD" — optional deadline
+  remindAt?: string // "YYYY-MM-DDTHH:mm" — optional reminder
+  subtasks: Subtask[]
 }
 
 export type Session = {
@@ -99,12 +108,43 @@ export const domains: Domain[] = [
 ]
 
 export const tasks: Task[] = [
-  { id: "t_1", domainId: "d_1", title: "Finish binary tree traversals", completed: false },
-  { id: "t_2", domainId: "d_1", title: "Re-do the graph problem set", completed: true },
-  { id: "t_3", domainId: "d_2", title: "Write POST /tasks with Pydantic", completed: false },
-  { id: "t_4", domainId: "d_2", title: "Read up on SQLAlchemy relationships", completed: false },
-  { id: "t_5", domainId: "d_3", title: "Eigenvalues — practice sheet 4", completed: true },
-  { id: "t_6", domainId: "d_4", title: "Ship the StudyStack landing page", completed: false },
+  {
+    id: "t_1",
+    domainId: "d_1",
+    title: "Finish binary tree traversals",
+    completed: false,
+    dueDate: "2026-08-27",
+    remindAt: "2026-08-27T09:00",
+    subtasks: [
+      { id: "st_1_1", title: "Write iterative in-order traversal", completed: true },
+      { id: "st_1_2", title: "Write recursive pre-order traversal", completed: false },
+      { id: "st_1_3", title: "Compare stack usage for both", completed: false },
+    ],
+  },
+  { id: "t_2", domainId: "d_1", title: "Re-do the graph problem set", completed: true, subtasks: [] },
+  {
+    id: "t_3",
+    domainId: "d_2",
+    title: "Write POST /tasks with Pydantic",
+    completed: false,
+    subtasks: [
+      { id: "st_3_1", title: "Draft the TaskIn schema", completed: true },
+      { id: "st_3_2", title: "Handle validation errors", completed: false },
+    ],
+  },
+  { id: "t_4", domainId: "d_2", title: "Read up on SQLAlchemy relationships", completed: false, subtasks: [] },
+  { id: "t_5", domainId: "d_3", title: "Eigenvalues — practice sheet 4", completed: true, subtasks: [] },
+  {
+    id: "t_6",
+    domainId: "d_4",
+    title: "Ship the StudyStack landing page",
+    completed: false,
+    dueDate: "2026-08-26",
+    subtasks: [
+      { id: "st_6_1", title: "Write the hero copy", completed: true },
+      { id: "st_6_2", title: "Wire up the CTA buttons", completed: false },
+    ],
+  },
 ]
 
 export const recentSessions: Session[] = [

@@ -34,7 +34,7 @@ export function Button({ variant = "primary", size = "md", full, className, ...r
     primary: "bg-violet text-ink hover:brightness-115 shadow-lg shadow-violet/20",
     ghost: "text-muted hover:text-ink hover:bg-elevated",
     outline: "border border-line text-ink hover:bg-elevated hover:border-violet-soft/50",
-    danger: "border border-line text-muted hover:text-ink hover:border-violet-soft/40",
+    danger: "border border-danger/40 text-danger hover:bg-danger/10",
   }
 
   const sizes = {
@@ -78,7 +78,7 @@ export function Card({ children, className }: { children: ReactNode; className?:
   )
 }
 
-/** Small stat block: label, big number, thin progress bar. */
+/** Small stat block: label, big number, optional thin progress bar. */
 export function StatCard({
   label,
   value,
@@ -88,20 +88,48 @@ export function StatCard({
   label: string
   value: string
   caption: string
-  progress: number // 0..1
+  progress?: number // 0..1 — only render the bar when meaningfully supplied
 }) {
   return (
     <Card className="flex flex-col gap-3">
       <span className="text-xs text-faint">{label}</span>
       <span className="font-display text-3xl font-semibold tracking-tight text-ink">{value}</span>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
-        <div
-          className="h-full rounded-full bg-violet transition-[width] duration-700"
-          style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
-        />
-      </div>
+      {progress !== undefined && (
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+          <div
+            className="h-full rounded-full bg-violet transition-[width] duration-700"
+            style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
+          />
+        </div>
+      )}
       <span className="text-xs text-faint">{caption}</span>
     </Card>
+  )
+}
+
+/**
+ * Stack motif: three descending bars echoing the logo mark. Used as a
+ * progress indicator where the number alone can't carry the proportion.
+ */
+export function StackBar({
+  progress,
+  colour = "bg-violet",
+  className,
+}: {
+  progress: number
+  colour?: string // a bg-colour token class, e.g. "bg-mint"
+  className?: string
+}) {
+  const pct = `${Math.min(100, Math.max(0, progress * 100))}%`
+  const widths = ["100%", "72%", "44%"]
+  return (
+    <div className={cx("flex flex-col gap-[3px]", className)} aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-[5px] overflow-hidden rounded-full bg-elevated" style={{ width: widths[i] }}>
+          <div className={cx("h-full rounded-full transition-[width] duration-700", colour)} style={{ width: pct }} />
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -112,7 +140,7 @@ export function Pill({ children, tone = "violet" }: { children: ReactNode; tone?
     mint: "bg-mint/15 text-mint",
     neutral: "bg-elevated text-muted",
   }
-  return <span className={cx("rounded-full px-2.5 py-1 text-[11px] font-medium", tones[tone])}>{children}</span>
+  return <span className={cx("rounded-full px-2.5 py-1 text-xs font-medium", tones[tone])}>{children}</span>
 }
 
 /** Avatar: shows an image if we have one, otherwise the first letter. */

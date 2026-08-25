@@ -1,7 +1,8 @@
 import { Link, NavLink, useNavigate } from "react-router-dom"
-import { LogOut } from "lucide-react"
+import { LogOut, Moon, Sun } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { useTimer, formatClock } from "@/context/TimerContext"
+import { useTheme } from "@/context/ThemeContext"
 import { Avatar, cx } from "@/components/ui"
 import Logo from "@/components/Logo"
 
@@ -26,6 +27,7 @@ const LINKS = [
 export default function Navbar() {
   const { user, logout } = useAuth()
   const { secondsLeft, isRunning } = useTimer()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate() // lets us redirect from JS, not a click
 
   function handleLogout() {
@@ -66,6 +68,14 @@ export default function Navbar() {
             />
             {formatClock(secondsLeft)}
           </span>
+
+          <button
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="grid h-9 w-9 place-items-center rounded-lg text-faint transition-colors hover:bg-elevated hover:text-ink"
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
 
           <NavLink
             to="/profile"
