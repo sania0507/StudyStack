@@ -6,15 +6,18 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import Base, Domain, Task #why did we import tasks? 
+from models import Base, Domain, Task,Subtask #why did we import tasks? 
 # Importing Task tells SQLAlchemy what the tasks table looks like, so Base.metadata.create_all() knows it needs to create/manage that table.
 from schemas import (
     DomainCreate,
     DomainUpdate,
     DomainOut,
     TaskCreate,
+    TaskUpdate,
     TaskOut,
-    TaskUpdate
+    SubtaskCreate,
+    SubtaskUpdate,
+    SubtaskOut,
 )
 
 
@@ -184,3 +187,71 @@ def delete_task(
     db.commit()
 
     return {"message": "Task deleted successfully"}
+
+# Subtasks
+
+@app.post("/subtasks", response_model=SubtaskOut)
+def create_subtask(
+    subtask: SubtaskCreate,
+    db: Session = Depends(get_db)
+):
+    new_subtask = Subtask(
+        id=uuid.uuid4(),
+        task_id=subtask.task_id,
+        title=subtask.title,
+        completed=False,
+    )
+
+    db.add(new_subtask)
+    db.commit()
+    db.refresh(new_subtask)
+
+    return new_subtask
+
+@app.get("/subtasks", response_model=list[SubtaskOut])
+def get_subtasks(db: Session = Depends(get_db)):
+    result = db.execute(select(Subtask))
+    return result.scalars().all()
+
+@app.patch("/subtasks/{subtask_id}", response_model=SubtaskOut)
+def update_subtask(
+    subtask_id: uuid.UUID,
+    subtask: SubtaskUpdate,
+    db: Session = Depends(get_db)
+):
+    existing_subtask = db.get(Subtask, subtask_id)
+
+    if existing_subtask is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Subtask not found"
+        )
+
+    if subtask.title is not None:
+        existing_subtask.title = subtask.title
+
+    if subtask.completed is not None:
+        existing_subtask.completed = subtask.completed
+
+    db.commit()
+    db.refresh(existing_subtask)
+
+    return existing_subtask
+
+@app.delete("/subtasks/{subtask_id}")
+def delete_subtask(
+    subtask_id: uuid.UUID,
+    db: Session = Depends(get_db)
+):
+    existing_subtask = db.get(Subtask, subtask_id)
+
+    if existing_subtask is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Subtask not found"
+        )
+
+    db.delete(existing_subtask)
+    db.commit()
+
+    return {"message": "Subtask deleted successfully"}
