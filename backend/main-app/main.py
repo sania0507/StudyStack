@@ -1,8 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI,Depends
 from pydantic import BaseModel
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
-
+from sqlalchemy.orm import Session
 from database import engine, SessionLocal
 from models import Base, Domain
 
@@ -20,11 +20,15 @@ class DomainCreate(BaseModel):
 
 Base.metadata.create_all(bind=engine)
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 @app.post("/domains")
-def create_domain(domain: DomainCreate):
-    db = SessionLocal()
-
+def create_domain( domain: DomainCreate, db: Session = Depends(get_db)):
     new_domain = Domain(
         id=uuid.uuid4(),
         name=domain.name,
