@@ -1,15 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react"
-import { domains as seedDomains, type Domain } from "@/api/mock"
-
-/*
-  ============================================================
-  DomainsContext — the one source of truth for domains
-  ============================================================
-  Dashboard and TimerPanel both need the same list of domains.
-  If Dashboard added a domain to its own useState, the timer's
-  <select> would never hear about it. So the list lives here,
-  above the router, and every consumer reads the same array.
-*/
+import { createContext, useEffect, useContext, useMemo, useState, type ReactNode } from "react"
+import { type Domain } from "@/api/mock"
 
 type DomainsValue = {
   domains: Domain[]
@@ -18,32 +8,66 @@ type DomainsValue = {
 
 const DomainsContext = createContext<DomainsValue | null>(null)
 
-const COLOURS = ["violet", "mint", "violet-soft"]
-
 export function DomainsProvider({ children }: { children: ReactNode }) {
-  const [domains, setDomains] = useState<Domain[]>(seedDomains)
+  const [domains, setDomains] = useState<Domain[]>([])
 
-  function addDomain(name: string) {
+  useEffect(() => {
+    async function loadDomains() {
+      const response = await fetch("http://localhost:8000/domains")
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch domains")
+      }
+
+      const data: Domain[] = await response.json()
+
+      console.log("DOMAINS FROM BACKEND:", data)
+
+      setDomains(data)
+    }
+
+    loadDomains()
+  }, [])
+
+  async function addDomain(name: string) {
     const clean = name.trim()
+
     if (!clean) return
-    setDomains((prev) => [
-      ...prev,
-      {
-        id: `d_${Date.now()}`,
-        name: clean,
-        colour: COLOURS[prev.length % COLOURS.length],
-        minutesThisWeek: 0,
+
+    const response = await fetch("http://localhost:8000/domains", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
-    ])
+      body: JSON.stringify({
+        name: clean,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error("Failed to add domain")
+    }
+
+    const newDomain: Domain = await response.json()
+
+    setDomains((prev) => [...prev, newDomain])
   }
 
   const value = useMemo(() => ({ domains, addDomain }), [domains])
 
-  return <DomainsContext.Provider value={value}>{children}</DomainsContext.Provider>
+  return (
+    <DomainsContext.Provider value={value}>
+      {children}
+    </DomainsContext.Provider>
+  )
 }
 
 export function useDomains() {
   const ctx = useContext(DomainsContext)
-  if (!ctx) throw new Error("useDomains must be used inside <DomainsProvider>")
+
+  if (!ctx) {
+    throw new Error("useDomains must be used inside <DomainsProvider>")
+  }
+
   return ctx
 }

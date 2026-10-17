@@ -23,7 +23,9 @@ class TaskOut(BaseModel):
     completed: bool
     completed_at: datetime | None
     due_date: datetime | None
+    overdue: bool
 
     model_config = {
         "from_attributes": True
     }
+
