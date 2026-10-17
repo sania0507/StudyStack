@@ -5,7 +5,7 @@ from database import engine, SessionLocal
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
+from auth import get_current_user_id
 from models import Base, Domain, Task,Subtask #why did we import tasks? 
 # Importing Task tells SQLAlchemy what the tasks table looks like, so Base.metadata.create_all() knows it needs to create/manage that table.
 from schemas import (
@@ -63,26 +63,34 @@ def task_to_out(task: Task) -> TaskOut:
     )
 
 # Domains
+
 @app.post("/domains", response_model=DomainOut)
 def create_domain(
     domain: DomainCreate,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
     new_domain = Domain(
         id=uuid.uuid4(),
         name=domain.name,
         colour="violet",
+        user_id=user_id,
     )
 
     db.add(new_domain)
     db.commit()
+    db.refresh(new_domain)
 
     return new_domain
 
-
 @app.get("/domains", response_model=list[DomainOut])
-def get_domains(db: Session = Depends(get_db)):
-    result = db.execute(select(Domain))
+def get_domains(
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    result = db.execute(
+        select(Domain).where(Domain.user_id == user_id)
+    )
     return result.scalars().all()
 
 
@@ -90,15 +98,18 @@ def get_domains(db: Session = Depends(get_db)):
 def update_domain(
     domain_id: uuid.UUID,
     domain: DomainUpdate,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_domain = db.get(Domain, domain_id)
+    existing_domain = db.scalar(
+        select(Domain).where(
+            Domain.id == domain_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_domain is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Domain not found"
-        )
+        raise HTTPException(status_code=404, detail="Domain not found")
 
     if domain.name is not None:
         existing_domain.name = domain.name
@@ -108,41 +119,49 @@ def update_domain(
 
     db.commit()
     db.refresh(existing_domain)
-
     return existing_domain
 
 
 @app.delete("/domains/{domain_id}")
 def delete_domain(
     domain_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_domain = db.get(Domain, domain_id)
+    existing_domain = db.scalar(
+        select(Domain).where(
+            Domain.id == domain_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_domain is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Domain not found"
-        )
+        raise HTTPException(status_code=404, detail="Domain not found")
 
     db.delete(existing_domain)
     db.commit()
 
     return {"message": "Domain deleted successfully"}
 
+# ----------------------
+
+
 # Tasks
 @app.post("/tasks", response_model=TaskOut)
 def create_task(
     task: TaskCreate,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_domain = db.get(Domain, task.domain_id)
+    existing_domain = db.scalar(
+        select(Domain).where(
+            Domain.id == task.domain_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_domain is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Domain not found"
-        )
+        raise HTTPException(status_code=404, detail="Domain not found")
 
     new_task = Task(
         id=uuid.uuid4(),
@@ -158,17 +177,19 @@ def create_task(
     db.refresh(new_task)
 
     return task_to_out(new_task)
-
 @app.get("/tasks", response_model=list[TaskOut])
 def get_tasks(
     completed: bool | None = None,
     overdue: bool | None = None,
     domain_id: uuid.UUID | None = None,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    query = select(Task)
-
-
+    query = (
+        select(Task)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(Domain.user_id == user_id)
+    )
 
     if completed is not None:
         query = query.where(Task.completed == completed)
@@ -176,27 +197,33 @@ def get_tasks(
     if domain_id is not None:
         query = query.where(Task.domain_id == domain_id)
 
-    result = db.execute(query)
-    tasks = result.scalars().all()
+    tasks = db.scalars(query).all()
 
     if overdue is not None:
-        tasks = [task for task in tasks if is_overdue(task) == overdue]
+        tasks = [
+            task for task in tasks
+            if is_overdue(task) == overdue
+        ]
 
     return [task_to_out(task) for task in tasks]
-
 @app.patch("/tasks/{task_id}", response_model=TaskOut)
 def update_task(
     task_id: uuid.UUID,
     task: TaskUpdate,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_task = db.get(Task, task_id)
+    existing_task = db.scalar(
+        select(Task)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Task.id == task_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_task is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Task not found"
-        )
+        raise HTTPException(status_code=404, detail="Task not found")
 
     if task.title is not None:
         existing_task.title = task.title
@@ -206,29 +233,33 @@ def update_task(
 
     if task.completed is not None:
         existing_task.completed = task.completed
-
-        if task.completed:
-            existing_task.completed_at = datetime.now()
-        else:
-            existing_task.completed_at = None
+        existing_task.completed_at = (
+            datetime.now() if task.completed else None
+        )
 
     db.commit()
     db.refresh(existing_task)
 
     return task_to_out(existing_task)
 
+
 @app.delete("/tasks/{task_id}")
 def delete_task(
     task_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_task = db.get(Task, task_id)
+    existing_task = db.scalar(
+        select(Task)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Task.id == task_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_task is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Task not found"
-        )
+        raise HTTPException(status_code=404, detail="Task not found")
 
     db.delete(existing_task)
     db.commit()
@@ -240,8 +271,21 @@ def delete_task(
 @app.post("/subtasks", response_model=SubtaskOut)
 def create_subtask(
     subtask: SubtaskCreate,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
+    existing_task = db.scalar(
+        select(Task)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Task.id == subtask.task_id,
+            Domain.user_id == user_id,
+        )
+    )
+
+    if existing_task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
     new_subtask = Subtask(
         id=uuid.uuid4(),
         task_id=subtask.task_id,
@@ -256,23 +300,38 @@ def create_subtask(
     return new_subtask
 
 @app.get("/subtasks", response_model=list[SubtaskOut])
-def get_subtasks(db: Session = Depends(get_db)):
-    result = db.execute(select(Subtask))
-    return result.scalars().all()
+def get_subtasks(
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    query = (
+        select(Subtask)
+        .join(Task, Subtask.task_id == Task.id)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(Domain.user_id == user_id)
+    )
+
+    return db.scalars(query).all()
 
 @app.patch("/subtasks/{subtask_id}", response_model=SubtaskOut)
 def update_subtask(
     subtask_id: uuid.UUID,
     subtask: SubtaskUpdate,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_subtask = db.get(Subtask, subtask_id)
+    existing_subtask = db.scalar(
+        select(Subtask)
+        .join(Task, Subtask.task_id == Task.id)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Subtask.id == subtask_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_subtask is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Subtask not found"
-        )
+        raise HTTPException(status_code=404, detail="Subtask not found")
 
     if subtask.title is not None:
         existing_subtask.title = subtask.title
@@ -285,21 +344,27 @@ def update_subtask(
 
     return existing_subtask
 
+
 @app.delete("/subtasks/{subtask_id}")
 def delete_subtask(
     subtask_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
-    existing_subtask = db.get(Subtask, subtask_id)
+    existing_subtask = db.scalar(
+        select(Subtask)
+        .join(Task, Subtask.task_id == Task.id)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Subtask.id == subtask_id,
+            Domain.user_id == user_id,
+        )
+    )
 
     if existing_subtask is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Subtask not found"
-        )
+        raise HTTPException(status_code=404, detail="Subtask not found")
 
     db.delete(existing_subtask)
     db.commit()
 
     return {"message": "Subtask deleted successfully"}
-
