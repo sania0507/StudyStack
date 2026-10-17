@@ -43,6 +43,25 @@ def get_db():
     finally:
         db.close()
 
+#DeadLine Logic
+def is_overdue(task: Task) -> bool:
+
+    return (
+        task.due_date is not None
+        and task.due_date < datetime.now()
+        and not task.completed
+    )
+def task_to_out(task: Task) -> TaskOut:
+    return TaskOut(
+        id=task.id,
+        domain_id=task.domain_id,
+        title=task.title,
+        completed=task.completed,
+        completed_at=task.completed_at,
+        due_date=task.due_date,
+        overdue=is_overdue(task),
+    )
+
 # Domains
 @app.post("/domains", response_model=DomainOut)
 def create_domain(
@@ -117,6 +136,14 @@ def create_task(
     task: TaskCreate,
     db: Session = Depends(get_db)
 ):
+    existing_domain = db.get(Domain, task.domain_id)
+
+    if existing_domain is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Domain not found"
+        )
+
     new_task = Task(
         id=uuid.uuid4(),
         domain_id=task.domain_id,
@@ -130,12 +157,32 @@ def create_task(
     db.commit()
     db.refresh(new_task)
 
-    return new_task
+    return task_to_out(new_task)
 
 @app.get("/tasks", response_model=list[TaskOut])
-def get_tasks(db: Session = Depends(get_db)):
-    result = db.execute(select(Task))
-    return result.scalars().all()
+def get_tasks(
+    completed: bool | None = None,
+    overdue: bool | None = None,
+    domain_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db)
+):
+    query = select(Task)
+
+
+
+    if completed is not None:
+        query = query.where(Task.completed == completed)
+
+    if domain_id is not None:
+        query = query.where(Task.domain_id == domain_id)
+
+    result = db.execute(query)
+    tasks = result.scalars().all()
+
+    if overdue is not None:
+        tasks = [task for task in tasks if is_overdue(task) == overdue]
+
+    return [task_to_out(task) for task in tasks]
 
 @app.patch("/tasks/{task_id}", response_model=TaskOut)
 def update_task(
@@ -168,7 +215,7 @@ def update_task(
     db.commit()
     db.refresh(existing_task)
 
-    return existing_task
+    return task_to_out(existing_task)
 
 @app.delete("/tasks/{task_id}")
 def delete_task(
@@ -255,3 +302,4 @@ def delete_subtask(
     db.commit()
 
     return {"message": "Subtask deleted successfully"}
+
