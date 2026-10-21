@@ -14,7 +14,7 @@ app = FastAPI(title="StudyStack Auth Service")
 
 # Creates database tables that do not exist yet.
 # Useful during local development; use Alembic migrations as the project matures.
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 
 @app.post(

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine, SessionLocal
+from database import engine, SessionLocal, get_db
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,15 +33,8 @@ app.add_middleware(
 )
 
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 #DeadLine Logic
 def is_overdue(task: Task) -> bool:
