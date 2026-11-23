@@ -16,12 +16,17 @@
 import type { Domain, Session, Subtask, Task, User } from "@/api/types"
 
 // An env var that exists but is EMPTY is not caught by ??, which would leave
-// the base URL as "" and send requests to the frontend's own origin — Vercel
-// answers those with 405. Treat blank as unset, and strip trailing slashes so
-// URLs never end up as "https://host//auth/login".
+// the base URL as "" and send requests to the frontend's own origin.
+// A var WITHOUT a scheme is worse: fetch() treats "host.name/path" as a
+// RELATIVE path, so the request goes to the frontend's own domain and Vercel
+// answers 405. Both cases are handled here.
 function envUrl(value: string | undefined, fallback: string): string {
   const trimmed = value?.trim()
-  return trimmed ? trimmed.replace(/\/+$/, "") : fallback
+  if (!trimmed) return fallback
+
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+
+  return withScheme.replace(/\/+$/, "")
 }
 
 const AUTH_URL = envUrl(import.meta.env.VITE_AUTH_URL, "http://localhost:8000")
