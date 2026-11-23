@@ -42,6 +42,9 @@ export default function Dashboard() {
   // Real analytics numbers replace the old hardcoded `stats` object.
   const [analytics, setAnalytics] = useState<api.AnalyticsSummary | null>(null)
 
+  // A delete that fails is reported here, in the page, not in a popup.
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   useEffect(() => {
     async function loadTasks() {
       try {
@@ -201,53 +204,56 @@ export default function Dashboard() {
     }
   }
 
-  // --- deletes: confirm first, then remove locally so the UI updates at once ---
+  // --- deletes: no dialogs; the row disappears at once and any failure is
+  // shown inline so the click never feels like it did nothing ---
 
   async function deleteTaskById(id: string) {
-    if (!window.confirm("Delete this task and its subtasks?")) return
+    // Optimistic: remove it now, put it back if the request fails.
+    const snapshot = tasks
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    setDeleteError(null)
 
     try {
       await api.deleteTask(id)
-      setTasks((prev) => prev.filter((t) => t.id !== id))
     } catch (error) {
-      // Tell the user instead of failing silently in the console.
-      window.alert(
-        `Could not delete the task: ${error instanceof Error ? error.message : "unknown error"}`,
+      setTasks(snapshot)
+      setDeleteError(
+        `Could not delete that task: ${error instanceof Error ? error.message : "unknown error"}`,
       )
     }
   }
 
   async function deleteSubtaskById(taskId: string, subtaskId: string) {
-    if (!window.confirm("Delete this subtask?")) return
+    const snapshot = tasks
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, subtasks: t.subtasks.filter((st) => st.id !== subtaskId) } : t,
+      ),
+    )
+    setDeleteError(null)
 
     try {
       await api.deleteSubtask(subtaskId)
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId ? { ...t, subtasks: t.subtasks.filter((st) => st.id !== subtaskId) } : t,
-        ),
-      )
     } catch (error) {
-      window.alert(
-        `Could not delete the subtask: ${error instanceof Error ? error.message : "unknown error"}`,
+      setTasks(snapshot)
+      setDeleteError(
+        `Could not delete that subtask: ${error instanceof Error ? error.message : "unknown error"}`,
       )
     }
   }
 
   async function deleteDomainById(id: string) {
-    // Deleting a domain cascades to every task, subtask and session under it,
-    // so this one spells that out.
-    if (!window.confirm("Delete this domain? Its tasks, subtasks and study sessions go with it.")) return
+    const snapshot = tasks
+    setTasks((prev) => prev.filter((t) => t.domainId !== id))
+    setActiveDomain((prev) => (prev === id ? null : prev))
+    setDeleteError(null)
 
     try {
       await removeDomain(id)
-
-      // Drop the local copies too, so the list does not wait for a reload.
-      setTasks((prev) => prev.filter((t) => t.domainId !== id))
-      setActiveDomain((prev) => (prev === id ? null : prev))
     } catch (error) {
-      window.alert(
-        `Could not delete the domain: ${error instanceof Error ? error.message : "unknown error"}`,
+      setTasks(snapshot)
+      setDeleteError(
+        `Could not delete that domain: ${error instanceof Error ? error.message : "unknown error"}`,
       )
     }
   }
@@ -262,6 +268,24 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* A failed delete shows here rather than in a browser popup. */}
+      {deleteError && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger"
+        >
+          <span>{deleteError}</span>
+          <button
+            type="button"
+            onClick={() => setDeleteError(null)}
+            aria-label="Dismiss"
+            className="shrink-0 rounded p-0.5 hover:bg-danger/15"
+          >
+            <X size={14} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
+
       {/* ---------------- greeting + live clock ---------------- */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
