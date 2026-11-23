@@ -1,8 +1,26 @@
 # StudyStack
 
-A study and assignment tracker: domains hold tasks, tasks hold subtasks, deadlines drive overdue logic and reminders, and a focus timer records study sessions that feed an analytics dashboard.
+Most study apps assume a routine you don't have. They want a weekly schedule, a fixed block for each subject, a plan made on Sunday that you follow on Tuesday. If you work in bursts instead — three hours tonight on one thing, nothing for four days, then panic — those apps ask you to be someone else before they'll help you.
+
+StudyStack tracks the work without demanding the schedule. You add what's due, break it into pieces, set deadlines that actually count down, and start a timer when the energy hits. It counts what you did, not what you planned to do.
+
+I built it because that's how I study.
 
 Two FastAPI services, one React frontend, one PostgreSQL database.
+
+---
+
+## The Problem It Solves
+
+An erratic routine has two failure modes: deadlines you forgot, and no record of the effort you did put in. Both make it easy to conclude you're not doing enough when you are.
+
+StudyStack addresses each directly:
+
+- **Deadlines don't depend on discipline.** A due date is stored, and overdue is computed from it. Nothing needs you to check in for the system to know you're late.
+- **Effort is recorded where you work.** The timer writes a session against a domain when it finishes. There is no separate journal to keep up.
+- **Streaks reward consistency without requiring it.** A streak survives a day with no session, so one slow day doesn't wipe out three good ones.
+
+The design assumption is that you'll show up unpredictably. Bursts are expected, not treated as failure.
 
 ---
 
