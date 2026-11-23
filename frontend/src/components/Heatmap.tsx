@@ -1,4 +1,3 @@
-import { heatmap } from "@/api/mock"
 import { cx } from "@/components/ui"
 
 /*
@@ -10,8 +9,9 @@ import { cx } from "@/components/ui"
   row a weekday. Feed it a flat array of days and the grid
   arranges itself — no manual week-chunking needed.
 
-  We render ~53 weeks. On narrow screens the container scrolls
-  horizontally rather than squashing the squares.
+  Data now comes from the analytics service as real minutes
+  per day, so this component converts minutes into a level
+  instead of receiving levels directly.
 */
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -25,16 +25,30 @@ const LEVEL_CLASS: Record<number, string> = {
   4: "bg-violet",
 }
 
-export default function Heatmap() {
+// Minutes are unbounded, levels are 0..4, so bucket them.
+function levelForMinutes(minutes: number): number {
+  if (minutes <= 0) return 0
+  if (minutes < 30) return 1
+  if (minutes < 60) return 2
+  if (minutes < 120) return 3
+  return 4
+}
+
+type HeatmapDay = {
+  date: string
+  minutes: number
+}
+
+export default function Heatmap({ days }: { days: HeatmapDay[] }) {
   // Screen-reader summary derived from the data, so the chart isn't purely visual.
-  const totalDays = heatmap.length
-  const activeDays = heatmap.filter((d) => d.level > 0).length
+  const totalDays = days.length
+  const activeDays = days.filter((d) => d.minutes > 0).length
 
   return (
     <div className="flex flex-col gap-3">
-      {/* off-screen text summary of the year */}
+      {/* off-screen text summary of the period */}
       <span className="sr-only">
-        Days you showed up: sessions on {activeDays} of {totalDays} days in the past year, from Less to More.
+        Days you showed up: sessions on {activeDays} of {totalDays} days, from Less to More.
       </span>
 
       {/* month labels — evenly spread, indicative rather than pixel-exact */}
@@ -57,14 +71,18 @@ export default function Heatmap() {
           aria-label="Days you showed up, one cell per day"
           className="grid min-w-[660px] grid-flow-col grid-rows-7 gap-[3px]"
         >
-          {heatmap.map((d) => (
-            <span
-              key={d.date}
-              title={`${d.date}: ${d.level === 0 ? "no sessions" : `level ${d.level}`}`}
-              aria-label={`${d.date}: ${d.level === 0 ? "no sessions" : `level ${d.level}`}`}
-              className={cx("h-[11px] w-[11px] rounded-[2.5px]", LEVEL_CLASS[d.level])}
-            />
-          ))}
+          {days.map((d) => {
+            const level = levelForMinutes(d.minutes)
+
+            return (
+              <span
+                key={d.date}
+                title={`${d.date}: ${d.minutes === 0 ? "no sessions" : `${d.minutes} min`}`}
+                aria-label={`${d.date}: ${d.minutes === 0 ? "no sessions" : `${d.minutes} minutes`}`}
+                className={cx("h-[11px] w-[11px] rounded-[2.5px]", LEVEL_CLASS[level])}
+              />
+            )
+          })}
         </div>
       </div>
 

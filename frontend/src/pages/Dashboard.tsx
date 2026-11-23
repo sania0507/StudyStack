@@ -2,20 +2,21 @@ import { useEffect, useState } from "react"
 import { Bell, CalendarDays, Check, ChevronDown, Plus } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { useDomains } from "@/context/DomainsContext"
-import { tasks as seedTasks, stats, type Task } from "@/api/mock"
+import * as api from "@/api/client"
+import type { Task } from "@/api/types"
 import { Button, Card, Field, Pill, StackBar, StatCard, cx } from "@/components/ui"
 import FrogCard from "@/components/FrogCard"
 
 /*
   ============================================================
-  Dashboard — domains + tasks, with real interactivity
+  Dashboard — domains + tasks, backed by the real API
   ============================================================
   Derived state rule: `visible`, `done`, and `totalMinutes` are
   CALCULATED from existing state during render — never stored.
 
-  Domain list is shared (DomainsContext), so a domain added here
-  also appears in the timer's <select>. Tasks stay local to this
-  page for now: they're the page's own working set.
+  Domain list is shared (DomainsContext). Tasks load from the
+  backend and every edit writes through, so a refresh no longer
+  loses your work.
 */
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -34,9 +35,34 @@ export default function Dashboard() {
   const { domains, addDomain } = useDomains()
 
   // --- page state ---
-  const [tasks, setTasks] = useState<Task[]>(seedTasks)
+  const [tasks, setTasks] = useState<Task[]>([])
   const [activeDomain, setActiveDomain] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string[]>([])
+
+  // Real analytics numbers replace the old hardcoded `stats` object.
+  const [analytics, setAnalytics] = useState<api.AnalyticsSummary | null>(null)
+
+  useEffect(() => {
+    async function loadTasks() {
+      try {
+        setTasks(await api.getTasks())
+      } catch (error) {
+        console.error("Failed to load tasks:", error)
+      }
+    }
+
+    async function loadAnalytics() {
+      try {
+        setAnalytics(await api.getAnalytics())
+      } catch (error) {
+        // Analytics is a nice-to-have here; the task list still works.
+        console.error("Failed to load analytics:", error)
+      }
+    }
+
+    loadTasks()
+    loadAnalytics()
+  }, [])
 
   // Live 12h clock for the greeting.
   const [now, setNow] = useState(() => new Date())
@@ -70,27 +96,55 @@ export default function Dashboard() {
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
 
   // --- actions ---
-  function toggleTask(id: string) {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)))
+  async function toggleTask(id: string) {
+    const task = tasks.find((t) => t.id === id)
+    if (!task) return
+
+    // Optimistic update: flip it locally, then correct course if the API fails.
+    const nextCompleted = !task.completed
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, completed: nextCompleted } : t)))
+
+    try {
+      await api.updateTask(id, { completed: nextCompleted })
+    } catch (error) {
+      console.error("Failed to update task:", error)
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, completed: task.completed } : t)))
+    }
   }
 
-  function toggleSubtask(taskId: string, subtaskId: string) {
+  async function toggleSubtask(_taskId: string, subtaskId: string) {
+    const found = tasks.flatMap((t) => t.subtasks).find((st) => st.id === subtaskId)
+    if (!found) return
+
+    const nextCompleted = !found.completed
+
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId
-          ? { ...t, subtasks: t.subtasks.map((st) => (st.id === subtaskId ? { ...st, completed: !st.completed } : st)) }
-          : t,
-      ),
+      prev.map((t) => ({
+        ...t,
+        subtasks: t.subtasks.map((st) => (st.id === subtaskId ? { ...st, completed: nextCompleted } : st)),
+      })),
     )
+
+    try {
+      await api.updateSubtask(subtaskId, { completed: nextCompleted })
+    } catch (error) {
+      console.error("Failed to update subtask:", error)
+      setTasks((prev) =>
+        prev.map((t) => ({
+          ...t,
+          subtasks: t.subtasks.map((st) => (st.id === subtaskId ? { ...st, completed: found.completed } : st)),
+        })),
+      )
+    }
   }
 
   function toggleExpanded(id: string) {
     setExpanded((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  function commitDomain() {
+  async function commitDomain() {
     if (!newDomainName.trim()) return
-    addDomain(newDomainName)
+    await addDomain(newDomainName)
     setNewDomainName("")
     setAddingDomain(false)
   }
@@ -100,40 +154,54 @@ export default function Dashboard() {
     setNewDue("")
     setNewRemind(false)
     setNewRemindAt("")
-    if (!activeDomain) setNewDomainId(domains[0]?.id ?? "d_1")
+    if (!activeDomain) setNewDomainId(domains[0]?.id ?? "")
     setAddingTask(true)
   }
 
-  function commitTask() {
+  async function commitTask() {
     const title = newTitle.trim()
     if (!title) return
-    const task: Task = {
-      id: `t_${Date.now()}`,
-      domainId: activeDomain ?? newDomainId,
-      title,
-      completed: false,
-      subtasks: [],
-      ...(newDue ? { dueDate: newDue } : {}),
-      ...(newRemind && newRemindAt ? { remindAt: newRemindAt } : {}),
+
+    const domainId = activeDomain ?? newDomainId
+    if (!domainId) return
+
+    try {
+      const created = await api.createTask({ domainId, title, dueDate: newDue || undefined })
+
+      // A reminder is a separate resource, so it is created after the task.
+      if (newRemind && newRemindAt) {
+        await api.createReminder(created.id, new Date(newRemindAt).toISOString())
+      }
+
+      setTasks((prev) => [...prev, created])
+      setAddingTask(false)
+    } catch (error) {
+      console.error("Failed to create task:", error)
     }
-    setTasks((prev) => [...prev, task])
-    setAddingTask(false)
   }
 
-  function commitSubtask(taskId: string) {
+  async function commitSubtask(taskId: string) {
     const title = subtaskTitle.trim()
     if (!title) return
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId ? { ...t, subtasks: [...t.subtasks, { id: `st_${Date.now()}`, title, completed: false }] } : t,
-      ),
-    )
-    setSubtaskFor(null)
-    setSubtaskTitle("")
+
+    try {
+      const created = await api.createSubtask(taskId, title)
+
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, subtasks: [...t.subtasks, created] } : t)))
+      setSubtaskFor(null)
+      setSubtaskTitle("")
+    } catch (error) {
+      console.error("Failed to create subtask:", error)
+    }
   }
 
-  const hours = Math.floor(stats.deepWorkThisMonth / 60)
-  const mins = stats.deepWorkThisMonth % 60
+  // Fall back to zeroes so the page renders before analytics arrives.
+  const totalMinutesThisWeek = analytics ? Math.round(analytics.hoursPerWeek * 60) : 0
+  const streakDays = analytics?.streak ?? 0
+  const weeklyGoalMinutes = 900
+
+  const hours = Math.floor(totalMinutesThisWeek / 60)
+  const mins = totalMinutesThisWeek % 60
 
   return (
     <div className="flex flex-col gap-6">
@@ -151,10 +219,10 @@ export default function Dashboard() {
             <span className="font-medium tabular-nums text-ink">{timeStr}</span>
           </p>
           <p className="mt-0.5 text-xs text-faint">
-            {done} of {tasks.length} tasks cleared. {stats.streakDays} days in a row.
+            {done} of {tasks.length} tasks cleared. {streakDays} days in a row.
           </p>
         </div>
-        <Pill tone="mint">{stats.streakDays} day streak</Pill>
+        <Pill tone="mint">{streakDays} day streak</Pill>
       </div>
 
       {/* ---------------- frog nudge ---------------- */}
@@ -163,15 +231,15 @@ export default function Dashboard() {
       {/* ---------------- stats ---------------- */}
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
-          label="Deep work this month"
+          label="Time tracked this week"
           value={`${hours}h ${mins}m`}
-          caption={`${Math.round((stats.deepWorkThisMonth / stats.weeklyGoalMinutes) * 100)}% of goal`}
+          caption={`${Math.round((totalMinutesThisWeek / weeklyGoalMinutes) * 100)}% of goal`}
         />
-        <StatCard label="Current streak" value={`${stats.streakDays} days`} caption="Building momentum" />
+        <StatCard label="Current streak" value={`${streakDays} days`} caption="Building momentum" />
         <StatCard
-          label="Missed this week"
-          value={`${stats.missedThisWeek} / 7`}
-          caption={`${7 - stats.missedThisWeek} days with sessions`}
+          label="Overdue"
+          value={`${analytics?.overdueCount ?? 0}`}
+          caption="Tasks past their due date"
         />
       </div>
 

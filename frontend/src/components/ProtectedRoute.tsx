@@ -16,6 +16,17 @@ import { useAuth } from "@/context/AuthContext"
   hide actual secrets.
 */
 export default function ProtectedRoute() {
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
+
+  // While a saved token is being verified, showing the login page would
+  // flash for a moment on every refresh. Wait instead.
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-base">
+        <p className="text-sm text-muted">Loading StudyStack…</p>
+      </div>
+    )
+  }
+
   return user ? <Outlet /> : <Navigate to="/login" replace />
 }

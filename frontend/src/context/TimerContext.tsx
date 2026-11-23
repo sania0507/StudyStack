@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createSession } from "@/api/client"
+import { useDomains } from "@/context/DomainsContext"
 
 /*
   ============================================================
@@ -38,8 +40,24 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const [totalSeconds, setTotalSeconds] = useState(60 * 60) // default 1h
   const [secondsLeft, setSecondsLeft] = useState(60 * 60)
   const [isRunning, setIsRunning] = useState(false)
-  const [domainId, setDomainId] = useState("d_1")
+  const [domainId, setDomainId] = useState("")
   const [completedCount, setCompletedCount] = useState(0)
+
+  // The timer's domain picker defaults to the first real domain.
+  const { domains } = useDomains()
+
+  useEffect(() => {
+    // Only set a default when nothing is chosen yet, so the user's own
+    // pick is never overwritten.
+    if (!domainId && domains.length > 0) {
+      setDomainId(domains[0].id)
+    }
+
+    // If the selected domain was deleted, fall back to the first one.
+    if (domainId && !domains.some((domain) => domain.id === domainId)) {
+      setDomainId(domains[0]?.id ?? "")
+    }
+  }, [domains, domainId])
 
   // useRef holds a value that survives re-renders but does NOT trigger one.
   const tickRef = useRef<number | null>(null)
@@ -66,10 +84,21 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (secondsLeft === 0 && isRunning) {
       setIsRunning(false)
-      setCompletedCount((c) => c + 1)
       beep()
+
+      // Persist the finished block so analytics has real data.
+      // The timer never counts less than a minute.
+      const minutes = Math.max(1, Math.round(totalSeconds / 60))
+
+      if (domainId) {
+        createSession({ domainId, minutes })
+          .then(() => setCompletedCount((c) => c + 1))
+          .catch((error) => {
+            console.error("Failed to save study session:", error)
+          })
+      }
     }
-  }, [secondsLeft, isRunning])
+  }, [secondsLeft, isRunning, totalSeconds, domainId])
 
   /** Lazily create/resume an AudioContext. Browsers require a user gesture,
       so we resume it inside start() — which is always a click. */

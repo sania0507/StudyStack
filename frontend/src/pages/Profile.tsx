@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { Camera, Trash2 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
-import * as api from "@/api/mock"
+import * as api from "@/api/client"
 import { Avatar, Button, Card, Field } from "@/components/ui"
 
 /*
