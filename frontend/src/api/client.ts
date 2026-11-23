@@ -15,13 +15,22 @@
 
 import type { Domain, Session, Subtask, Task, User } from "@/api/types"
 
-const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "http://localhost:8000"
-const MAIN_URL = import.meta.env.VITE_MAIN_URL ?? "http://localhost:8001"
+// An env var that exists but is EMPTY is not caught by ??, which would leave
+// the base URL as "" and send requests to the frontend's own origin — Vercel
+// answers those with 405. Treat blank as unset, and strip trailing slashes so
+// URLs never end up as "https://host//auth/login".
+function envUrl(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed.replace(/\/+$/, "") : fallback
+}
+
+const AUTH_URL = envUrl(import.meta.env.VITE_AUTH_URL, "http://localhost:8000")
+const MAIN_URL = envUrl(import.meta.env.VITE_MAIN_URL, "http://localhost:8001")
 
 // Analytics is served by the task service now, so it needs no separate URL.
 // VITE_ANALYTICS_URL is still honoured if set, for anyone still running the
 // old standalone service.
-const ANALYTICS_URL = import.meta.env.VITE_ANALYTICS_URL ?? MAIN_URL
+const ANALYTICS_URL = envUrl(import.meta.env.VITE_ANALYTICS_URL, MAIN_URL)
 
 const TOKEN_KEY = "studystack.token"
 

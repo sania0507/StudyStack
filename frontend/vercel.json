@@ -5,7 +5,7 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!assets/|.*\\.(?:png|svg|jpg|jpeg|ico|webp|woff2?|css|js)$).*)",
+      "source": "/((?!assets/|auth/|.*\\.(?:png|svg|jpg|jpeg|ico|webp|woff2?|css|js)$).*)",
       "destination": "/index.html"
     }
   ],
