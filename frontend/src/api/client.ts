@@ -68,10 +68,16 @@ async function request<T>(
 ): Promise<T> {
   const token = getToken()
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...((init.headers as Record<string, string>) ?? {}),
+  // Only declare JSON when a body is actually being sent. A DELETE with
+  // Content-Type triggers an extra CORS preflight for no reason, and if the
+  // preflight is rejected the request dies before it reaches the server.
+  const headers: Record<string, string> = {}
+
+  if (init.body !== undefined && init.body !== null) {
+    headers["Content-Type"] = "application/json"
   }
+
+  Object.assign(headers, (init.headers as Record<string, string>) ?? {})
 
   if (token) headers.Authorization = `Bearer ${token}`
 

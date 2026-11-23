@@ -210,7 +210,10 @@ export default function Dashboard() {
       await api.deleteTask(id)
       setTasks((prev) => prev.filter((t) => t.id !== id))
     } catch (error) {
-      console.error("Failed to delete task:", error)
+      // Tell the user instead of failing silently in the console.
+      window.alert(
+        `Could not delete the task: ${error instanceof Error ? error.message : "unknown error"}`,
+      )
     }
   }
 
@@ -225,7 +228,9 @@ export default function Dashboard() {
         ),
       )
     } catch (error) {
-      console.error("Failed to delete subtask:", error)
+      window.alert(
+        `Could not delete the subtask: ${error instanceof Error ? error.message : "unknown error"}`,
+      )
     }
   }
 
@@ -241,7 +246,9 @@ export default function Dashboard() {
       setTasks((prev) => prev.filter((t) => t.domainId !== id))
       setActiveDomain((prev) => (prev === id ? null : prev))
     } catch (error) {
-      console.error("Failed to delete domain:", error)
+      window.alert(
+        `Could not delete the domain: ${error instanceof Error ? error.message : "unknown error"}`,
+      )
     }
   }
 
