@@ -1,0 +1,21 @@
+# Keeps the root build context small and secrets out of the image.
+# The frontend is deployed separately (Vercel), so it is not needed here.
+
+.git
+.reasonix
+node_modules
+**/node_modules
+
+# Never bake environment files into an image.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local caches
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.venv
+**/*.tsbuildinfo
+
+frontend
