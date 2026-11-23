@@ -1,0 +1,178 @@
+# StudyStack — the whole architecture in one command.
+#
+#   docker compose up --build
+#
+# Ports (on your machine):
+#   3000  frontend (vite preview)
+#   8000  auth-service
+#   8001  task service (main-app)
+#   8002  analytics-service
+#   5432  PostgreSQL
+#   5672  RabbitMQ
+#
+# Internally, services talk to each other by service name, e.g. the task
+# service reaches the database at postgres:5432 not localhost:5432.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studystack_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studystack_dev_password}
+      POSTGRES_DB: studystack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Other services wait for this, so they never start against a
+      # database that is not accepting connections yet.
+      test: ["CMD-SHELL", "pg_isready -U studystack_user -d studystack"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # management UI: guest / guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  auth-service:
+    build:
+      context: ./backend
+    working_dir: /app/auth-service
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # auth-service owns the users table. It runs first, so the task
+      # service's create_all (which touches domains/tasks/etc) is safe.
+      CREATE_TABLES_ON_START: "true"
+    volumes:
+      - ./backend/auth-service:/app/auth-service
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  task-service:
+    build:
+      context: ./backend
+    working_dir: /app/main-app
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    volumes:
+      - ./backend/main-app:/app/main-app
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      # Waits for auth-service so the users table exists before the
+      # shared schema is created.
+      auth-service:
+        condition: service_healthy
+
+  analytics-service:
+    build:
+      context: ./backend
+    working_dir: /app/analytics-service
+    # Creates only processed_events, then starts the read API.
+    command: ["sh", "-c", "python init_tables.py && uvicorn main:app --host 0.0.0.0 --port 8002"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CREATE_TABLES_ON_START: "false"
+    volumes:
+      - ./backend/analytics-service:/app/analytics-service
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # The scheduled reminder worker from milestone 7. It shares the task
+  # service's image and database but runs no web server.
+  reminder-worker:
+    build:
+      context: ./backend
+    working_dir: /app/main-app
+    command: ["python", "-c", "from reminders import start_scheduler; import time; start_scheduler(); print('Reminder worker running.'); time.sleep(10**9)"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    volumes:
+      - ./backend/main-app:/app/main-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Consumes events from RabbitMQ and records them.
+  analytics-consumer:
+    build:
+      context: ./backend
+    working_dir: /app/analytics-service
+    command: ["python", "consumer.py"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    volumes:
+      - ./backend/analytics-service:/app/analytics-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    # pnpm is used by the project; npm install keeps the image simple.
+    command: sh -c "npm install --no-audit --no-fund && npm run build && npx vite preview --host 0.0.0.0 --port 3000"
+    environment:
+      VITE_AUTH_URL: http://localhost:8000
+      VITE_MAIN_URL: http://localhost:8001
+      VITE_ANALYTICS_URL: http://localhost:8002
+    volumes:
+      - ./frontend:/app
+      # A named volume keeps container-owned node_modules and dist out of
+      # your working tree.
+      - frontend_node_modules:/app/node_modules
+      - frontend_dist:/app/dist
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - task-service
+      - analytics-service
+
+volumes:
+  postgres_data:
+  frontend_node_modules:
+  frontend_dist:

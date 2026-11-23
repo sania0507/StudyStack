@@ -4,6 +4,7 @@ import uuid
 
 import pika
 from sqlalchemy import select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, engine
@@ -52,9 +53,13 @@ def handle_event(db: Session, message: dict) -> bool:
 
 
 # Called once when the consumer starts, so a fresh database has the
-# analytics-owned tables.
+# analytics-owned tables. The API container may create them at the same
+# moment, so a duplicate-object error just means we lost that race.
 def create_tables() -> None:
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except ProgrammingError:
+        print("Tables already created by another container.")
 
 
 def on_message(channel, method, properties, body) -> None:
@@ -75,6 +80,8 @@ def on_message(channel, method, properties, body) -> None:
 
 
 def main() -> None:
+    create_tables()
+
     connection = pika.BlockingConnection(
         pika.URLParameters(settings.rabbitmq_url)
     )
