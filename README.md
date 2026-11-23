@@ -125,9 +125,11 @@ brokers deliver **at least once**, the table has a unique constraint on
 ### auth-service (8000)
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/register` | 409 if the email exists |
+| POST | `/auth/register` | 409 if the email exists; `name` optional |
 | POST | `/auth/login` | returns a JWT |
 | GET | `/auth/me` | requires `Authorization: Bearer <token>` |
+| PATCH | `/auth/me` | update `name` and/or `email`; 409 if the email is taken |
+| POST | `/auth/change-password` | 204 on success, 401 if the current password is wrong |
 
 ### task-service (8001)
 All routes require a Bearer token and are scoped to the caller's own data.
@@ -203,15 +205,25 @@ sudo -u postgres psql -d studystack_analytics_test \
 
 ## Migrations
 
-`create_all()` is no longer the source of truth for production. The task
-service owns an Alembic migration:
+`create_all()` is no longer the source of truth. Each service owns its own
+Alembic migrations and its own version table, because both share one database:
+
+| Service | Revision table | Owns |
+|---|---|---|
+| `task-service` | `alembic_version_tasks` | domains, tasks, subtasks, reminders, study_sessions |
+| `auth-service` | `alembic_version_auth` | users |
+
+Migrations run automatically at container start (`MIGRATE_ON_START=true` in
+`docker-compose.yml` and `render.yaml`), so a first deploy against an empty
+database is prepared without a manual step. To run them by hand:
 
 ```bash
-cd backend/main-app
-alembic upgrade head
+cd backend/main-app     && alembic upgrade head
+cd backend/auth-service && alembic upgrade head
 ```
 
-`users` is deliberately excluded — that table belongs to auth-service.
+Two services writing to a single `alembic_version` table would corrupt each
+other's revision chain — that is why the tables are separate.
 
 ---
 
