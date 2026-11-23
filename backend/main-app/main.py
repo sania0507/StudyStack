@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from auth import get_current_user_id
+from events import publish_session_completed, publish_task_completed
 from reminders import send_due_reminders, start_scheduler, stop_scheduler
 from models import Base, Domain, Task,Subtask, Reminder, StudySession #why did we import tasks? 
 # Importing Task tells SQLAlchemy what the tasks table looks like, so Base.metadata.create_all() knows it needs to create/manage that table.
@@ -249,6 +250,14 @@ def update_task(
 
     db.commit()
     db.refresh(existing_task)
+
+    # Only announce the change when the task actually became completed.
+    if task.completed is True:
+        publish_task_completed(
+            user_id=user_id,
+            task_id=existing_task.id,
+            domain_id=existing_task.domain_id,
+        )
 
     return task_to_out(existing_task)
 
@@ -521,6 +530,12 @@ def create_study_session(
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
+
+    publish_session_completed(
+        user_id=user_id,
+        domain_id=new_session.domain_id,
+        minutes=new_session.minutes,
+    )
 
     return new_session
 

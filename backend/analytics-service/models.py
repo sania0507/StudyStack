@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -67,3 +67,24 @@ class StudySession(Base):
         nullable=False,
         index=True,
     )
+
+
+# Every event the analytics service has consumed.
+# A message broker promises at-least-once delivery, so the unique constraint
+# on event_id is what makes the consumer safe to replay.
+class ProcessedEvent(Base):
+    __tablename__ = "processed_events"
+    __table_args__ = (
+        UniqueConstraint("event_id", name="uq_processed_events_event_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        nullable=False,
+        index=True,
+    )
+
+    event_type: Mapped[str] = mapped_column(nullable=False)
+
+    received_at: Mapped[datetime] = mapped_column(nullable=False)
