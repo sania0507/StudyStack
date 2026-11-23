@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Bell, CalendarDays, Check, ChevronDown, Plus } from "lucide-react"
+import { Bell, CalendarDays, Check, ChevronDown, Plus, X } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { useDomains } from "@/context/DomainsContext"
 import * as api from "@/api/client"
@@ -32,7 +32,7 @@ function formatReminder(iso: string) {
 
 export default function Dashboard() {
   const { user } = useAuth()
-  const { domains, addDomain } = useDomains()
+  const { domains, addDomain, removeDomain } = useDomains()
 
   // --- page state ---
   const [tasks, setTasks] = useState<Task[]>([])
@@ -201,6 +201,50 @@ export default function Dashboard() {
     }
   }
 
+  // --- deletes: confirm first, then remove locally so the UI updates at once ---
+
+  async function deleteTaskById(id: string) {
+    if (!window.confirm("Delete this task and its subtasks?")) return
+
+    try {
+      await api.deleteTask(id)
+      setTasks((prev) => prev.filter((t) => t.id !== id))
+    } catch (error) {
+      console.error("Failed to delete task:", error)
+    }
+  }
+
+  async function deleteSubtaskById(taskId: string, subtaskId: string) {
+    if (!window.confirm("Delete this subtask?")) return
+
+    try {
+      await api.deleteSubtask(subtaskId)
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, subtasks: t.subtasks.filter((st) => st.id !== subtaskId) } : t,
+        ),
+      )
+    } catch (error) {
+      console.error("Failed to delete subtask:", error)
+    }
+  }
+
+  async function deleteDomainById(id: string) {
+    // Deleting a domain cascades to every task, subtask and session under it,
+    // so this one spells that out.
+    if (!window.confirm("Delete this domain? Its tasks, subtasks and study sessions go with it.")) return
+
+    try {
+      await removeDomain(id)
+
+      // Drop the local copies too, so the list does not wait for a reload.
+      setTasks((prev) => prev.filter((t) => t.domainId !== id))
+      setActiveDomain((prev) => (prev === id ? null : prev))
+    } catch (error) {
+      console.error("Failed to delete domain:", error)
+    }
+  }
+
   // Fall back to zeroes so the page renders before analytics arrives.
   const totalMinutesThisWeek = analytics ? Math.round(analytics.hoursPerWeek * 60) : 0
   const streakDays = analytics?.streak ?? 0
@@ -290,19 +334,47 @@ export default function Dashboard() {
             const isActive = activeDomain === d.id
             const share = totalMinutes === 0 ? 0 : d.minutesThisWeek / totalMinutes
             return (
-              // Clicking a domain filters the task list below. One state change,
-              // two parts of the UI react to it.
-              <button
+              // A div (not a button) because the delete control inside it is
+              // itself a button, and nested buttons are invalid HTML.
+              // role/tabIndex/onKeyDown keep it keyboard-accessible.
+              <div
                 key={d.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => setActiveDomain(isActive ? null : d.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    setActiveDomain(isActive ? null : d.id)
+                  }
+                }}
                 className={cx(
-                  "rounded-[var(--radius-card)] border p-4 text-left transition-all",
+                  "group relative cursor-pointer rounded-[var(--radius-card)] border p-4 text-left transition-all",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-soft/60",
                   isActive
                     ? "border-violet-soft/60 bg-elevated"
                     : "border-line bg-surface hover:border-violet-soft/30 hover:bg-elevated",
                 )}
               >
-                <div className="flex items-center justify-between gap-3">
+                {/* Revealed on hover or keyboard focus so the card stays clean. */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    deleteDomainById(d.id)
+                  }}
+                  aria-label={`Delete ${d.name}`}
+                  title="Delete domain"
+                  className={cx(
+                    "absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-md text-faint",
+                    "opacity-0 transition-opacity hover:bg-danger/15 hover:text-danger",
+                    "group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50",
+                  )}
+                >
+                  <X size={13} strokeWidth={2.5} />
+                </button>
+
+                <div className="flex items-center justify-between gap-3 pr-6">
                   <span className="font-display text-[15px] font-medium text-ink">{d.name}</span>
                   <span className="shrink-0 text-xs tabular-nums text-faint">
                     {Math.floor(d.minutesThisWeek / 60)}h {d.minutesThisWeek % 60}m
@@ -316,7 +388,7 @@ export default function Dashboard() {
                 <span className="mt-2 block text-xs text-faint">
                   {tasks.filter((t) => t.domainId === d.id && !t.completed).length} open tasks
                 </span>
-              </button>
+              </div>
             )
           })}
         </div>
@@ -416,7 +488,7 @@ export default function Dashboard() {
             const isOpen = expanded.includes(t.id)
             const domainName = domains.find((d) => d.id === t.domainId)?.name
             return (
-              <div key={t.id} className="rounded-xl transition-colors hover:bg-elevated">
+              <div key={t.id} className="group/task rounded-xl transition-colors hover:bg-elevated">
                 <div className="flex items-center gap-3 px-3 py-2.5">
                   <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                     {/* Real checkbox control — styled visually, bound to the task state. */}
@@ -464,6 +536,20 @@ export default function Dashboard() {
 
                   <button
                     type="button"
+                    onClick={() => deleteTaskById(t.id)}
+                    aria-label={`Delete ${t.title}`}
+                    title="Delete task"
+                    className={cx(
+                      "grid h-7 w-7 shrink-0 place-items-center rounded-lg text-faint",
+                      "opacity-0 transition-opacity hover:bg-danger/15 hover:text-danger",
+                      "group-hover/task:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50",
+                    )}
+                  >
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => toggleExpanded(t.id)}
                     aria-expanded={isOpen}
                     aria-label={`${isOpen ? "Collapse" : "Expand"} subtasks for ${t.title}`}
@@ -476,27 +562,48 @@ export default function Dashboard() {
                 {isOpen && (
                   <div className="ml-[38px] mr-3 flex flex-col gap-0.5 border-l border-line pb-1 pl-3">
                     {t.subtasks.map((st) => (
-                      <label key={st.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-elevated">
-                        <input
-                          type="checkbox"
-                          checked={st.completed}
-                          onChange={() => toggleSubtask(t.id, st.id)}
-                          aria-label={`Mark ${st.title} complete`}
-                          className="peer sr-only"
-                        />
-                        <span
-                          aria-hidden="true"
+                      <div
+                        key={st.id}
+                        className="group/sub flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-elevated"
+                      >
+                        {/* The label covers only the checkbox and title, so the
+                            delete button beside it does not toggle completion. */}
+                        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={st.completed}
+                            onChange={() => toggleSubtask(t.id, st.id)}
+                            aria-label={`Mark ${st.title} complete`}
+                            className="peer sr-only"
+                          />
+                          <span
+                            aria-hidden="true"
+                            className={cx(
+                              "grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
+                              "border-line peer-checked:border-violet peer-checked:bg-violet peer-checked:text-ink",
+                            )}
+                          >
+                            {st.completed && <Check size={10} strokeWidth={3} />}
+                          </span>
+                          <span className={cx("min-w-0 flex-1 truncate text-sm", st.completed ? "text-faint line-through" : "text-ink")}>
+                            {st.title}
+                          </span>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteSubtaskById(t.id, st.id)}
+                          aria-label={`Delete subtask ${st.title}`}
+                          title="Delete subtask"
                           className={cx(
-                            "grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
-                            "border-line peer-checked:border-violet peer-checked:bg-violet peer-checked:text-ink",
+                            "grid h-5 w-5 shrink-0 place-items-center rounded text-faint",
+                            "opacity-0 transition-opacity hover:bg-danger/15 hover:text-danger",
+                            "group-hover/sub:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50",
                           )}
                         >
-                          {st.completed && <Check size={10} strokeWidth={3} />}
-                        </span>
-                        <span className={cx("min-w-0 flex-1 truncate text-sm", st.completed ? "text-faint line-through" : "text-ink")}>
-                          {st.title}
-                        </span>
-                      </label>
+                          <X size={11} strokeWidth={3} />
+                        </button>
+                      </div>
                     ))}
 
                     {subtaskFor === t.id ? (
