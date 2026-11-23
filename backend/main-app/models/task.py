@@ -13,8 +13,12 @@ class Task(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
 
     domain_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("domains.id"),
-        nullable=False
+        # CASCADE so deleting a domain removes its tasks instead of raising a
+        # foreign-key error. Subtasks, reminders and sessions then cascade from
+        # the task in turn.
+        ForeignKey("domains.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     title: Mapped[str] = mapped_column(nullable=False)

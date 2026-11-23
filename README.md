@@ -1,65 +1,92 @@
 # StudyStack
 
-A study and assignment tracker built as two FastAPI services plus a React
-frontend. Domains hold tasks, tasks hold subtasks, deadlines drive overdue
-logic and reminders, and a focus timer records study sessions that feed an
-analytics dashboard.
+A study and assignment tracker: domains hold tasks, tasks hold subtasks, deadlines drive overdue logic and reminders, and a focus timer records study sessions that feed an analytics dashboard.
+
+Two FastAPI services, one React frontend, one PostgreSQL database.
+
+---
+
+## What Is Included
+
+- Accounts with JWT authentication; every request is scoped to the caller's own data.
+- Login, registration, profile editing (name and email) and password change.
+- Domain CRUD.
+- Task CRUD with optional due dates and completion tracking.
+- Subtask CRUD.
+- Overdue logic derived on read, never stored.
+- Reminders with a scheduled job that fires each one exactly once.
+- A focus timer that records study sessions against a domain.
+- Analytics: hours per week, streak, overdue count, weekday split, per-domain completion, daily heatmap.
+- Docker Compose for local development.
+- Alembic migrations for both services.
 
 ---
 
 ## Architecture
 
 ```
-                        ┌────────────────────┐
-                        │    auth-service    │
-                        │  signup / login    │
-                        │  JWT issuing       │
-                        │  profile editing   │
-                        └─────────┬──────────┘
-                                  │ JWT
-                                  ↓
-   ┌────────────────────────────────────────────────────┐
-   │            task-service (main-app)                 │
-   │                                                    │
-   │  Domains → Tasks → Subtasks                        │
-   │  Due dates → Overdue logic                         │
-   │  Reminders + scheduled job (60s tick)              │
-   │  Study sessions                                    │
-   │  Analytics summary                                 │
-   └───────────────────┬────────────────────────────────┘
-                       │ events (optional)
-                       ↓
-              ┌──────────────────┐
-              │     RabbitMQ     │
-              │  event log only  │
-              └──────────────────┘
+                    ┌────────────────────┐
+                    │    auth-service    │
+                    │  register / login  │
+                    │  JWT issuing       │
+                    │  profile editing   │
+                    └─────────┬──────────┘
+                              │ JWT
+                              ↓
+        ┌─────────────────────────────────────────┐
+        │        task-service (main-app)          │
+        │                                         │
+        │  Domains → Tasks → Subtasks             │
+        │  Due dates → Overdue logic              │
+        │  Reminders + scheduled job (60s tick)   │
+        │  Study sessions                         │
+        │  Analytics summary                      │
+        └────────────────┬────────────────────────┘
+                         │
+                         ↓
+                  ┌──────────────┐
+                  │  PostgreSQL  │
+                  │  (one DB,    │
+                  │  split       │
+                  │  ownership)  │
+                  └──────────────┘
 ```
 
 | Service | Port | Owns |
 |---|---|---|
 | `auth-service` | 8000 | `users` |
 | `task-service` (`main-app`) | 8001 | `domains`, `tasks`, `subtasks`, `reminders`, `study_sessions` |
-| frontend | 3000 (dev) | React app, deployed to Vercel |
+| frontend | 3000 (dev) | React app, hosted on Vercel |
 
-Both services share one PostgreSQL database but own **separate tables**, each
-with its own Alembic migration history.
-
-### Why analytics lives inside the task service
-
-Analytics was originally a third service fed by RabbitMQ. It was merged back
-for one reason: **every number it reports is derived from tables the task
-service already owns.** `study_sessions`, `tasks` and `domains` are all there,
-so a separate service bought no isolation — only another deployment, another
-CORS origin, another JWT check, and a message broker that had to stay running.
-
-The broker is still wired up for the event log, but nothing depends on it:
-publishing fails gracefully, and the analytics figures are computed from the
-database directly. That means **the whole app runs from two services**, which
-matters on free hosting tiers that cap service count.
+Both services share one database but own separate tables. Each has its own Alembic revision table (`alembic_version_auth`, `alembic_version_tasks`) because two services writing to one `alembic_version` corrupt each other's revision chain.
 
 ---
 
-## Database relationships
+## From Three Services To Two
+
+The original plan had three services: auth, tasks/deadlines, and analytics, with analytics fed by a RabbitMQ event stream. All three were built and ran locally.
+
+Railway's free tier allows two services per project. Keeping analytics separate would have meant paying for a personal study tracker to keep a deployment boundary that was not doing any work.
+
+Analytics reads `study_sessions`, `tasks` and `domains` and writes nothing. It shared the task service's data completely, so the split gave no isolation and no independent scaling. It is now a router (`/analytics/summary`) in the task service, computing everything from the database on each request.
+
+Analytics queries now share a process with task writes. For a single-user tracker that is not a bottleneck, and it removed a deployment, a CORS origin, a JWT check and a broker requirement.
+
+---
+
+## RabbitMQ Status
+
+`backend/main-app/events.py` still publishes `session.completed` and `task.completed` to a durable topic exchange, each with a unique `event_id`. It returns `False` if the broker is unreachable rather than raising, so a broker outage cannot break a request.
+
+There is no consumer. The consumer belonged to the three-service design and was removed when analytics moved in-process, so nothing currently reads these events. Analytics numbers come from the database and are correct with RabbitMQ absent entirely.
+
+`RABBITMQ_URL` is therefore optional. Omit it and the app runs normally.
+
+Removing the publisher outright would mean deleting `events.py`, two router calls, the `pika` dependency and four tests. It is left in place as a durable event log that a consumer could pick up without changing any endpoint.
+
+---
+
+## Database Relationships
 
 ```
 users (auth-service)
@@ -74,74 +101,16 @@ domains
   └──< study_sessions   (also keyed by user_id)
 ```
 
-`overdue` is **never stored**. It is derived from `due_date`, `completed` and
-the current time, so it can never go stale or disagree with reality.
+`overdue` is never stored. It is computed from `due_date`, `completed` and the current time on every read.
 
-Deleting a domain cascades to its tasks, subtasks, reminders and sessions, so
-no rows are ever orphaned.
+Deleting a domain cascades to its tasks, and from there to subtasks and reminders; sessions cascade directly from the domain. No rows are left orphaned.
 
 ---
 
-## Why these choices
-
-**Why two services rather than one?** Authentication has genuinely different
-concerns from task data: it issues and verifies tokens, and it is the only
-service that touches password hashes. Keeping it separate means the task
-service never sees a password, and a token problem can be diagnosed without
-touching user data.
-
-**Why PostgreSQL?** The data is relational — a task must belong to a domain that
-belongs to a user — and referential integrity is enforced by foreign keys rather
-than application code. `ON DELETE CASCADE` handles cleanup for free.
-
-**Why FastAPI?** Pydantic validates every request body at the boundary, so
-endpoint code always receives well-typed data. It also produces OpenAPI docs at
-`/docs` for free, which is how the endpoints below were verified.
-
-**Why RabbitMQ, if nothing depends on it?** It records a durable event log:
-`session.completed` and `task.completed` are published with a unique `event_id`,
-so a consumer could be replayed without double-counting. It is deliberately
-optional — the roadmap this project follows warns against adding a broker
-without a reason, and the honest reason here is observability, not throughput.
-
----
-
-## How reminders work
-
-1. A reminder row has `remind_at` and a nullable `sent_at`.
-2. A scheduler inside the task service ticks every 60 seconds (`reminders.py`,
-   started from the FastAPI `lifespan`).
-3. It selects reminders where `remind_at <= now` and `sent_at IS NULL`.
-4. Completed tasks and deleted tasks are closed out without firing.
-5. Each processed reminder gets `sent_at` set, so **a reminder can never be
-   sent twice** — even across restarts.
-
-`max_instances=1` stops a slow tick from overlapping the next one.
-
-> On hosts that sleep idle services, the tick pauses with the service. Reminders
-> then fire on the next wake rather than exactly on time.
-
----
-
-## How analytics works
-
-`GET /analytics/summary` computes, per user:
-
-- **hours/week** — session minutes inside the current Monday–Sunday window
-- **streak** — consecutive days with at least one session (a streak stays alive
-  if the last session was yesterday)
-- **overdue count** — incomplete tasks whose `due_date` has passed
-- plus total minutes, sessions/day, weekday split, per-domain completion and a
-  daily heatmap
-
-All of it is derived at request time — nothing is precomputed, so the numbers
-can never disagree with the underlying data.
-
----
-
-## API overview
+## API Overview
 
 ### auth-service (8000)
+
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/auth/register` | 409 if the email exists; `name` optional |
@@ -151,6 +120,7 @@ can never disagree with the underlying data.
 | POST | `/auth/change-password` | 204 on success, 401 if the current password is wrong |
 
 ### task-service (8001)
+
 All routes require a Bearer token and are scoped to the caller's own data.
 
 | Method | Path |
@@ -167,47 +137,74 @@ All routes require a Bearer token and are scoped to the caller's own data.
 | GET | `/analytics/summary` (`?heatmap_days=30`) |
 | GET | `/health` |
 
-`TaskOut` includes `next_reminder_at`, the soonest reminder still pending, so
-the UI can show a bell without a second request.
+`TaskOut` includes `next_reminder_at`, the soonest pending reminder, so the UI shows a reminder badge without a second request.
 
 ---
 
-## Running locally
+## Reminders
+
+1. A reminder row has `remind_at` and a nullable `sent_at`.
+2. A scheduler inside the task service ticks every 60 seconds, started from the FastAPI `lifespan`.
+3. It selects reminders where `remind_at <= now` and `sent_at IS NULL`.
+4. Completed and deleted tasks are closed out without firing.
+5. Each processed reminder gets `sent_at` set, so one is never sent twice, including across restarts.
+
+`max_instances=1` prevents a slow tick overlapping the next.
+
+On hosts that sleep idle services the tick pauses with the service, so reminders fire on the next wake rather than exactly on time.
+
+---
+
+## Analytics
+
+`GET /analytics/summary` returns, per user:
+
+- hours/week: session minutes inside the current Monday-Sunday window
+- streak: consecutive days with at least one session, still alive if the last session was yesterday
+- overdue count: incomplete tasks whose `due_date` has passed
+- total minutes, sessions per day, weekday split, per-domain completion and a daily heatmap
+
+Everything is computed on request, so the numbers always match the underlying rows.
+
+---
+
+## Local Setup
 
 ```bash
 docker compose up --build
 ```
 
-Then open <http://localhost:3000>. The RabbitMQ management UI is at
-<http://localhost:15672> (guest / guest).
+Open http://localhost:3000.
 
-Without Docker, run each piece in its own shell (each service needs its own
-`.env` — copy the matching `.env.example`):
+Without Docker, run each piece in its own shell. Each service needs its own `.env`; copy the matching `.env.example`:
 
 ```bash
 cd backend/auth-service && uvicorn main:app --port 8000
 cd backend/main-app     && uvicorn main:app --port 8001
-cd frontend             && npm run dev
+cd frontend             && npm install && npm run dev
 ```
+
+The frontend reads `VITE_AUTH_URL` and `VITE_MAIN_URL`, defaulting to `http://localhost:8000` and `http://localhost:8001`. Analytics uses the task-service URL, so there is no third variable.
 
 ---
 
 ## Tests
 
-Each service has its own dedicated test database, and the test fixtures refuse
-to run against any other database name.
+Each service has its own test database and the fixtures refuse to run against any other name.
 
 ```bash
 cd backend/main-app
-TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_main_test \
-  pytest
+TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_main_test pytest
 
 cd backend/auth-service
-TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_auth_test \
-  pytest
+TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_auth_test pytest
 ```
 
-Create the databases once:
+60 tests: 44 in the task service, 16 in auth.
+
+Covered: registration and duplicate email, login and wrong password, profile updates, password change, CRUD for every resource, cross-user isolation, completion timestamps, overdue derivation across all four due-date cases, reminder idempotency, domain cascade to tasks and nested children, analytics windowing and scoping, and event publishing degrading when the broker is unreachable.
+
+Create the test databases once:
 
 ```bash
 sudo -u postgres psql -c "CREATE DATABASE studystack_main_test OWNER studystack_user;"
@@ -218,64 +215,51 @@ sudo -u postgres psql -c "CREATE DATABASE studystack_auth_test OWNER studystack_
 
 ## Migrations
 
-`create_all()` is not the source of truth. Each service owns its own Alembic
-migrations and its own version table, because both share one database:
+Alembic owns the schema.
 
 | Service | Revision table | Owns |
 |---|---|---|
 | `task-service` | `alembic_version_tasks` | domains, tasks, subtasks, reminders, study_sessions |
 | `auth-service` | `alembic_version_auth` | users |
 
-Migrations run automatically at container start when `MIGRATE_ON_START=true`,
-so a first deploy against an empty database needs no manual step. To run them by
-hand:
+Migrations run at container start when `MIGRATE_ON_START=true`, so a first deploy against an empty database needs no manual step. To run by hand:
 
 ```bash
 cd backend/main-app     && alembic upgrade head
 cd backend/auth-service && alembic upgrade head
 ```
 
-Two services writing to a single `alembic_version` table would corrupt each
-other's revision chain — that is why the tables are separate.
-
 ---
 
 ## Deployment
 
-Both services build from **one shared image**. The container picks its folder
-from `SERVICE_NAME`, so the two deployments differ only by environment.
+- React + Vite frontend on Vercel, with Root Directory set to `frontend`.
+- Two FastAPI services on Railway, built from one shared Dockerfile.
+- PostgreSQL on Neon, passed in as `DATABASE_URL` and using the `+psycopg` driver.
+
+Both services build from the same image and pick their folder from `SERVICE_NAME`.
 
 | Variable | auth | tasks | Notes |
 |---|---|---|---|
 | `SERVICE_NAME` | `auth-service` | `main-app` | selects the service folder |
-| `DATABASE_URL` | ✅ | ✅ | must include `+psycopg` |
-| `JWT_SECRET_KEY` | ✅ | ✅ | **must be identical on both** |
-| `CORS_ORIGINS` | ✅ | ✅ | comma-separated, no trailing slash |
+| `DATABASE_URL` | required | required | must include `+psycopg` |
+| `JWT_SECRET_KEY` | required | required | must be identical on both |
+| `CORS_ORIGINS` | required | required | comma-separated, no trailing slash |
 | `MIGRATE_ON_START` | `true` | `true` | runs `alembic upgrade head` |
-| `RABBITMQ_URL` | — | optional | event publishing only |
-| `PORT` | platform-set | platform-set | the entrypoint honours it |
+| `RABBITMQ_URL` | not used | optional | publishing only, no consumer |
+| `PORT` | platform-set | platform-set | honoured by the entrypoint |
 
-The image exposes both an `ENTRYPOINT` and a `CMD`, so it starts correctly
-whether the host supplies a command, a command string, or nothing at all.
+`JWT_SECRET_KEY` must match across both. If they differ, login succeeds but every later request returns 401, because auth signs tokens the task service cannot verify.
 
-Frontend (Vercel): set **Root Directory** to `frontend`, then supply
-`VITE_AUTH_URL` and `VITE_MAIN_URL`. Analytics shares the task-service URL, so
-no third variable is needed.
+The image defines both an `ENTRYPOINT` and a `CMD`, so it starts whether the host passes a command string or nothing.
 
 ---
 
-## Environment variables
+## Notes
 
-| Variable | Used by | Purpose |
-|---|---|---|
-| `DATABASE_URL` | both services | PostgreSQL connection string |
-| `JWT_SECRET_KEY` | both services | signs and verifies tokens |
-| `RABBITMQ_URL` | task service (optional) | event broker |
-| `CORS_ORIGINS` | both services | comma-separated allowed origins |
-| `SERVICE_NAME` | container | which service folder to run |
-| `MIGRATE_ON_START` | container | run migrations before starting |
-| `PORT` | container | port to bind |
-| `VITE_AUTH_URL` | frontend | auth-service base URL |
-| `VITE_MAIN_URL` | frontend | task-service base URL |
-
-Never commit `.env` files. Copy the `.env.example` in each service folder.
+- Deleting a domain removes its tasks, subtasks, reminders and sessions.
+- Reminder delivery is a line in the server log. Swapping in email or push does not change the bookkeeping.
+- The analytics week runs Monday to Sunday in server-local time.
+- Dashboard deletes are optimistic: the row disappears immediately and returns with an inline error banner if the server rejects it.
+- Passwords are hashed with Argon2 through `pwdlib` and hashes are never returned by any endpoint.
+- Access tokens expire after 30 minutes with no refresh token, so long sessions require re-login.
