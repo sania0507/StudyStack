@@ -9,8 +9,8 @@
 
   Which service lives where:
     auth-service       -> /auth/register, /auth/login, /auth/me
-    main-app           -> /domains, /tasks, /subtasks, /reminders, /sessions
-    analytics-service  -> /analytics/summary
+    main-app           -> /domains, /tasks, /subtasks, /reminders,
+                          /sessions, /analytics/summary
 */
 
 import type { Domain, Session, Subtask, Task, User } from "@/api/types"
