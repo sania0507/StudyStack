@@ -120,48 +120,6 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # The scheduled reminder worker from milestone 7. It shares the task
-  # service's image and database but runs no web server.
-  reminder-worker:
-    build:
-      context: ./backend
-    working_dir: /app/main-app
-    command: ["python", "reminder_worker.py"]
-    environment:
-      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      # The task service owns the migrations; this worker only reads them.
-      CREATE_TABLES_ON_START: "false"
-    volumes:
-      - ./backend/main-app:/app/main-app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      # Waits for the schema to exist before it starts polling.
-      task-service:
-        condition: service_started
-
-  # Consumes events from RabbitMQ and records them.
-  analytics-consumer:
-    build:
-      context: ./backend
-    working_dir: /app/analytics-service
-    command: ["python", "consumer.py"]
-    environment:
-      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      # consumer.py creates processed_events itself; the entrypoint must
-      # not also try to create the shared schema.
-      CREATE_TABLES_ON_START: "false"
-    volumes:
-      - ./backend/analytics-service:/app/analytics-service
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
 
   frontend:
     image: node:22-alpine
