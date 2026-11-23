@@ -1,14 +1,15 @@
 # Render blueprint for the StudyStack backend.
 #
-# Each service is built from the shared backend/Dockerfile and then runs
-# from its own folder inside the image (dockerWorkDir).
+# Each service builds the shared backend/Dockerfile. Render has no field for
+# setting a working directory, so every command changes into its service
+# folder first (the command runs through a shell).
 #
 # Deploy: Render Dashboard -> New -> Blueprint -> point at this repo.
 # Then fill in every value marked sync: false.
 #
-# The database is expected to come from Neon or Supabase (both have a free
-# tier) and is passed in as DATABASE_URL. A managed RabbitMQ instance (for
-# example CloudAMQP's free plan) supplies RABBITMQ_URL.
+# The database comes from Neon or Supabase (both free) and is passed in as
+# DATABASE_URL. A managed RabbitMQ instance (CloudAMQP's free plan) supplies
+# RABBITMQ_URL.
 
 services:
   - type: web
@@ -17,8 +18,7 @@ services:
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerWorkDir: /app/auth-service
-    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    dockerCommand: cd /app/auth-service && uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /docs
     envVars:
       - key: DATABASE_URL
@@ -39,8 +39,7 @@ services:
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerWorkDir: /app/main-app
-    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    dockerCommand: cd /app/main-app && uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -54,8 +53,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
-      # The migrations own the schema in production, so the first deploy
-      # against an empty database always creates the tables.
+      # The migrations own the task-service schema.
       - key: MIGRATE_ON_START
         value: "true"
       - key: CREATE_TABLES_ON_START
@@ -67,8 +65,7 @@ services:
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerWorkDir: /app/analytics-service
-    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    dockerCommand: cd /app/analytics-service && python init_tables.py && uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -82,6 +79,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # init_tables.py creates processed_events itself.
       - key: CREATE_TABLES_ON_START
         value: "false"
 
@@ -92,8 +90,7 @@ services:
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerWorkDir: /app/main-app
-    dockerCommand: python reminder_worker.py
+    dockerCommand: cd /app/main-app && python reminder_worker.py
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -104,7 +101,7 @@ services:
           envVarKey: JWT_SECRET_KEY
       - key: RABBITMQ_URL
         sync: false
-      # Only studystack-tasks migrates; this worker just reads the schema.
+      # Only the task service migrates; this worker just reads the schema.
       - key: CREATE_TABLES_ON_START
         value: "false"
 
@@ -115,8 +112,7 @@ services:
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerWorkDir: /app/analytics-service
-    dockerCommand: python consumer.py
+    dockerCommand: cd /app/analytics-service && python consumer.py
     envVars:
       - key: DATABASE_URL
         sync: false
