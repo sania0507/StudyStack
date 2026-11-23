@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException
 import uuid
+from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, SessionLocal, get_db
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from auth import get_current_user_id
-from models import Base, Domain, Task,Subtask #why did we import tasks? 
+from reminders import send_due_reminders, start_scheduler, stop_scheduler
+from models import Base, Domain, Task,Subtask, Reminder #why did we import tasks? 
 # Importing Task tells SQLAlchemy what the tasks table looks like, so Base.metadata.create_all() knows it needs to create/manage that table.
 from schemas import (
     DomainCreate,
@@ -18,12 +20,25 @@ from schemas import (
     SubtaskCreate,
     SubtaskUpdate,
     SubtaskOut,
+    ReminderCreate,
+    ReminderUpdate,
+    ReminderOut,
 )
 
 
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # The reminder worker runs for as long as the application is alive.
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -361,3 +376,116 @@ def delete_subtask(
     db.commit()
 
     return {"message": "Subtask deleted successfully"}
+
+# Reminders
+
+@app.post("/reminders", response_model=ReminderOut)
+def create_reminder(
+    reminder: ReminderCreate,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    existing_task = db.scalar(
+        select(Task)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Task.id == reminder.task_id,
+            Domain.user_id == user_id,
+        )
+    )
+
+    if existing_task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    new_reminder = Reminder(
+        id=uuid.uuid4(),
+        task_id=reminder.task_id,
+        remind_at=reminder.remind_at,
+        sent_at=None,
+    )
+
+    db.add(new_reminder)
+    db.commit()
+    db.refresh(new_reminder)
+
+    return new_reminder
+
+@app.get("/reminders", response_model=list[ReminderOut])
+def get_reminders(
+    task_id: uuid.UUID | None = None,
+    sent: bool | None = None,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    query = (
+        select(Reminder)
+        .join(Task, Reminder.task_id == Task.id)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(Domain.user_id == user_id)
+    )
+
+    if task_id is not None:
+        query = query.where(Reminder.task_id == task_id)
+
+    if sent is True:
+        query = query.where(Reminder.sent_at.is_not(None))
+
+    if sent is False:
+        query = query.where(Reminder.sent_at.is_(None))
+
+    return db.scalars(query).all()
+
+@app.patch("/reminders/{reminder_id}", response_model=ReminderOut)
+def update_reminder(
+    reminder_id: uuid.UUID,
+    reminder: ReminderUpdate,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    existing_reminder = db.scalar(
+        select(Reminder)
+        .join(Task, Reminder.task_id == Task.id)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Reminder.id == reminder_id,
+            Domain.user_id == user_id,
+        )
+    )
+
+    if existing_reminder is None:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+    if reminder.remind_at is not None:
+        existing_reminder.remind_at = reminder.remind_at
+
+        # Moving the reminder to a new time makes it pending again.
+        existing_reminder.sent_at = None
+
+    db.commit()
+    db.refresh(existing_reminder)
+
+    return existing_reminder
+
+@app.delete("/reminders/{reminder_id}")
+def delete_reminder(
+    reminder_id: uuid.UUID,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    existing_reminder = db.scalar(
+        select(Reminder)
+        .join(Task, Reminder.task_id == Task.id)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Reminder.id == reminder_id,
+            Domain.user_id == user_id,
+        )
+    )
+
+    if existing_reminder is None:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+    db.delete(existing_reminder)
+    db.commit()
+
+    return {"message": "Reminder deleted successfully"}
