@@ -121,7 +121,7 @@ services:
     build:
       context: ./backend
     working_dir: /app/main-app
-    command: ["python", "-c", "from reminders import start_scheduler; import time; start_scheduler(); print('Reminder worker running.'); time.sleep(10**9)"]
+    command: ["python", "reminder_worker.py"]
     environment:
       DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}

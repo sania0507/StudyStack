@@ -1,0 +1,124 @@
+# Render blueprint for the StudyStack backend.
+#
+# Each service is built from the shared backend/Dockerfile and then runs
+# from its own folder inside the image (dockerWorkDir).
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> point at this repo.
+# Then fill in every value marked sync: false.
+#
+# The database is expected to come from Neon or Supabase (both have a free
+# tier) and is passed in as DATABASE_URL. A managed RabbitMQ instance (for
+# example CloudAMQP's free plan) supplies RABBITMQ_URL.
+
+services:
+  - type: web
+    name: studystack-auth
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerWorkDir: /app/auth-service
+    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CREATE_TABLES_ON_START
+        value: "true"
+
+  - type: web
+    name: studystack-tasks
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerWorkDir: /app/main-app
+    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        fromService:
+          type: web
+          name: studystack-auth
+          envVarKey: JWT_SECRET_KEY
+      - key: RABBITMQ_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      # Migrations own the schema in production.
+      - key: CREATE_TABLES_ON_START
+        value: "false"
+
+  - type: web
+    name: studystack-analytics
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerWorkDir: /app/analytics-service
+    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        fromService:
+          type: web
+          name: studystack-auth
+          envVarKey: JWT_SECRET_KEY
+      - key: RABBITMQ_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CREATE_TABLES_ON_START
+        value: "false"
+
+  # Scheduled reminder worker from milestone 7.
+  - type: worker
+    name: studystack-reminders
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerWorkDir: /app/main-app
+    dockerCommand: python reminder_worker.py
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        fromService:
+          type: web
+          name: studystack-auth
+          envVarKey: JWT_SECRET_KEY
+      - key: RABBITMQ_URL
+        sync: false
+      - key: CREATE_TABLES_ON_START
+        value: "false"
+
+  # Consumes session/task events so analytics has a durable record.
+  - type: worker
+    name: studystack-analytics-consumer
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerWorkDir: /app/analytics-service
+    dockerCommand: python consumer.py
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        fromService:
+          type: web
+          name: studystack-auth
+          envVarKey: JWT_SECRET_KEY
+      - key: RABBITMQ_URL
+        sync: false
+      - key: CREATE_TABLES_ON_START
+        value: "false"
