@@ -1,4 +1,5 @@
 annotated-doc==0.0.5
+alembic==1.16.5
 annotated-types==0.8.0
 anyio==4.15.1
 APScheduler==3.11.0
@@ -15,6 +16,8 @@ httpcore==1.0.9
 httpx==0.28.1
 idna==3.20
 iniconfig==2.3.1
+Mako==1.4.3
+MarkupSafe==3.0.4
 packaging==26.3
 pika==1.5.0
 pluggy==1.7.0

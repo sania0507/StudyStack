@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -7,9 +8,19 @@ from database import engine, get_db
 from models import Base, User
 from schemas import LoginRequest, Token, UserCreate, UserOut
 from security import hash_password, verify_password
+from settings import settings
 
 
 app = FastAPI(title="StudyStack Auth Service")
+
+# The frontend runs on a different origin, so the browser needs these
+# headers before it will accept a login response.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Creates database tables that do not exist yet.

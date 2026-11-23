@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user_id
 from database import get_db
 from models import Domain, StudySession, Task
+from settings import settings
 from schemas import (
     AnalyticsSummary,
     DomainProgress,
@@ -37,7 +38,7 @@ app = FastAPI(title="StudyStack Analytics Service")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
