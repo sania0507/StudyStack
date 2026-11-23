@@ -79,6 +79,10 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # The migrations own the schema, so a fresh database is prepared
+      # the same way in development and production.
+      MIGRATE_ON_START: "true"
+      CREATE_TABLES_ON_START: "false"
     volumes:
       - ./backend/main-app:/app/main-app
     ports:
@@ -126,11 +130,16 @@ services:
       DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # The task service owns the migrations; this worker only reads them.
+      CREATE_TABLES_ON_START: "false"
     volumes:
       - ./backend/main-app:/app/main-app
     depends_on:
       postgres:
         condition: service_healthy
+      # Waits for the schema to exist before it starts polling.
+      task-service:
+        condition: service_started
 
   # Consumes events from RabbitMQ and records them.
   analytics-consumer:

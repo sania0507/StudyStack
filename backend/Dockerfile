@@ -16,6 +16,14 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# The service code lives in sibling folders (auth-service, main-app,
+# analytics-service). Copying them all makes the image self-contained, which
+# is required on hosts like Render where there is no bind mount. Each service
+# then runs from its own folder via working_dir / dockerWorkDir.
+COPY auth-service /app/auth-service
+COPY main-app /app/main-app
+COPY analytics-service /app/analytics-service
+
 # Runs as a non-root user, which is what most hosts expect.
 RUN useradd --create-home --uid 1000 studystack \
     && chown -R studystack:studystack /app
