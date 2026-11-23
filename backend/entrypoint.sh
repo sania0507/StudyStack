@@ -1,32 +1,43 @@
 #!/usr/bin/env bash
 # Prepares the database this service owns, then hands over to the real command.
-# Runs inside the container before uvicorn starts.
+# Runs inside the container before the server starts.
 set -e
 
+if [ "$#" -eq 0 ]; then
+  echo "No command supplied." >&2
+  exit 1
+fi
+
+# Render passes dockerCommand as ONE string, e.g.
+#   "cd /app/auth-service && uvicorn main:app --port 8000"
+# Docker Compose passes a list, e.g. ["uvicorn", "main:app"].
+COMMAND="$*"
+
+# Work out which folder this service should run from. Compose sets it via
+# working_dir, so $PWD is already correct and the "cd" is skipped. On Render
+# the only hint is the leading "cd /app/<service> &&" in the command, which
+# also has to happen BEFORE migrations run.
+case "$COMMAND" in
+  "cd "*"&&"*)
+    SERVICE_DIR=$(echo "$COMMAND" | sed -E 's/^cd ([^&]+)&&.*/\1/' | tr -d ' ')
+    if [ -d "$SERVICE_DIR" ]; then
+      cd "$SERVICE_DIR"
+    fi
+    ;;
+esac
+
 # Three modes, chosen per service:
-#   MIGRATE_ON_START=true   run alembic upgrade head (task service, production)
-#   CREATE_TABLES_ON_START  create_all() for services that own simple tables
+#   MIGRATE_ON_START=true   run alembic upgrade head
+#   CREATE_TABLES_ON_START  create_all() for services with simple tables
 #   neither                 do nothing (analytics: init_tables.py handles it)
 #
-# Several services start at the same time, so exactly one of them is
-# responsible for the shared schema to avoid racing.
-
+# Exactly one service owns the shared schema, so nothing races.
 if [ "${MIGRATE_ON_START:-false}" = "true" ]; then
-  echo "Running database migrations..."
-
-  # Render runs the image from /app, so move into the service folder where
-  # alembic.ini lives. Docker Compose already sets this via working_dir.
-  if [ -f "$PWD/alembic.ini" ]; then
-    alembic upgrade head
-  elif [ -f "$PWD/main-app/alembic.ini" ]; then
-    (cd main-app && alembic upgrade head)
-  else
-    echo "No alembic.ini found; cannot migrate." >&2
-    exit 1
-  fi
-
+  echo "Running database migrations in $PWD ..."
+  alembic upgrade head
   echo "Migrations complete."
 elif [ "${CREATE_TABLES_ON_START:-true}" = "true" ]; then
+  echo "Creating tables in $PWD ..."
   python - <<'PY'
 from database import engine
 from models import Base
@@ -38,4 +49,7 @@ else
   echo "Skipping table creation for this service."
 fi
 
-exec "$@"
+# Run the command through a shell: a bare exec of the compound string would
+# fail with status 128 because the whole string is one argument.
+echo "Starting: $COMMAND"
+exec sh -c "$COMMAND"
