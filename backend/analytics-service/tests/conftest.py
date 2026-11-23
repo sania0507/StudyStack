@@ -108,7 +108,7 @@ def domain_id(client, db, user_a):
     return domain.id
 
 
-def add_session(db, user_id, domain_id, minutes, finished_at):
+def _create_session(db, user_id, domain_id, minutes, finished_at):
     session = StudySession(
         id=uuid4(),
         user_id=user_id,
@@ -122,7 +122,7 @@ def add_session(db, user_id, domain_id, minutes, finished_at):
     return session
 
 
-def add_task(db, domain_id, completed=False, due_date=None):
+def _create_task(db, domain_id, completed=False, due_date=None):
     task = Task(
         id=uuid4(),
         domain_id=domain_id,
@@ -137,12 +137,22 @@ def add_task(db, domain_id, completed=False, due_date=None):
     return task
 
 
+# Factory fixtures: the test asks for `add_session`, then calls it with its
+# own arguments. The helper is deliberately named differently from the
+# fixture, because pytest 9 treats any call to a name that matches a
+# fixture as "calling a fixture directly".
 @pytest.fixture
-def add_session():
-    return add_session
+def add_session(db):
+    def _add(user_id, domain_id, minutes, finished_at):
+        return _create_session(db, user_id, domain_id, minutes, finished_at)
+
+    return _add
 
 
 @pytest.fixture
-def add_task():
-    return add_task
+def add_task(db):
+    def _add(domain_id, completed=False, due_date=None):
+        return _create_task(db, domain_id, completed=completed, due_date=due_date)
+
+    return _add
 

@@ -22,16 +22,16 @@ def test_empty_state_returns_zeroes(client):
 
 
 def test_hours_per_week_sums_only_this_week(
-    client, db, user_a, domain_id, add_session
+    client, user_a, domain_id, add_session
 ):
     today = datetime.now()
 
     # This week: 30 + 30 minutes = 1.0 hour.
-    add_session(db, user_a, domain_id, 30, today)
-    add_session(db, user_a, domain_id, 30, today)
+    add_session(user_a, domain_id, 30, today)
+    add_session(user_a, domain_id, 30, today)
 
     # Last week: must not be counted.
-    add_session(db, user_a, domain_id, 60, today - timedelta(days=10))
+    add_session(user_a, domain_id, 60, today - timedelta(days=10))
 
     response = client.get("/analytics/summary")
     data = response.json()
@@ -41,15 +41,15 @@ def test_hours_per_week_sums_only_this_week(
 
 
 def test_streak_counts_consecutive_days(
-    client, db, user_a, domain_id, add_session
+    client, user_a, domain_id, add_session
 ):
     now = datetime.now()
 
-    add_session(db, user_a, domain_id, 20, now)
-    add_session(db, user_a, domain_id, 20, now - timedelta(days=1))
-    add_session(db, user_a, domain_id, 20, now - timedelta(days=2))
+    add_session(user_a, domain_id, 20, now)
+    add_session(user_a, domain_id, 20, now - timedelta(days=1))
+    add_session(user_a, domain_id, 20, now - timedelta(days=2))
     # Gap on day 3, so the streak stops at 3.
-    add_session(db, user_a, domain_id, 20, now - timedelta(days=4))
+    add_session(user_a, domain_id, 20, now - timedelta(days=4))
 
     response = client.get("/analytics/summary")
 
@@ -57,12 +57,12 @@ def test_streak_counts_consecutive_days(
 
 
 def test_streak_survives_a_day_with_no_session_yet(
-    client, db, user_a, domain_id, add_session
+    client, user_a, domain_id, add_session
 ):
     # Streak should still be alive if the last session was yesterday.
     yesterday = datetime.now() - timedelta(days=1)
-    add_session(db, user_a, domain_id, 20, yesterday)
-    add_session(db, user_a, domain_id, 20, yesterday - timedelta(days=1))
+    add_session(user_a, domain_id, 20, yesterday)
+    add_session(user_a, domain_id, 20, yesterday - timedelta(days=1))
 
     response = client.get("/analytics/summary")
 
@@ -70,15 +70,15 @@ def test_streak_survives_a_day_with_no_session_yet(
 
 
 def test_overdue_count_ignores_completed_tasks(
-    client, db, user_a, domain_id, add_task
+    client, user_a, domain_id, add_task
 ):
     past = datetime.now() - timedelta(days=2)
     future = datetime.now() + timedelta(days=2)
 
-    add_task(db, domain_id, completed=False, due_date=past)
-    add_task(db, domain_id, completed=True, due_date=past)
-    add_task(db, domain_id, completed=False, due_date=future)
-    add_task(db, domain_id, completed=False, due_date=None)
+    add_task(domain_id, completed=False, due_date=past)
+    add_task(domain_id, completed=True, due_date=past)
+    add_task(domain_id, completed=False, due_date=future)
+    add_task(domain_id, completed=False, due_date=None)
 
     response = client.get("/analytics/summary")
 
@@ -86,10 +86,10 @@ def test_overdue_count_ignores_completed_tasks(
 
 
 def test_domain_completion_percentage(
-    client, db, user_a, domain_id, add_task
+    client, user_a, domain_id, add_task
 ):
-    add_task(db, domain_id, completed=True)
-    add_task(db, domain_id, completed=False)
+    add_task(domain_id, completed=True)
+    add_task(domain_id, completed=False)
 
     response = client.get("/analytics/summary")
     progress = response.json()["domain_completion"]
@@ -101,9 +101,9 @@ def test_domain_completion_percentage(
 
 
 def test_heatmap_has_one_entry_per_day(
-    client, db, user_a, domain_id, add_session
+    client, user_a, domain_id, add_session
 ):
-    add_session(db, user_a, domain_id, 45, datetime.now())
+    add_session(user_a, domain_id, 45, datetime.now())
 
     response = client.get("/analytics/summary", params={"heatmap_days": 7})
     heatmap = response.json()["heatmap"]
@@ -114,9 +114,9 @@ def test_heatmap_has_one_entry_per_day(
 
 
 def test_weekday_minutes_cover_every_weekday(
-    client, db, user_a, domain_id, add_session
+    client, user_a, domain_id, add_session
 ):
-    add_session(db, user_a, domain_id, 30, datetime.now())
+    add_session(user_a, domain_id, 30, datetime.now())
 
     response = client.get("/analytics/summary")
     weekdays = response.json()["weekday_minutes"]
@@ -146,8 +146,8 @@ def test_another_users_sessions_are_not_counted(
     )
     db.commit()
 
-    add_session(db, other_user, other_domain, 90, datetime.now())
-    add_session(db, user_a, domain_id, 30, datetime.now())
+    add_session(other_user, other_domain, 90, datetime.now())
+    add_session(user_a, domain_id, 30, datetime.now())
 
     response = client.get("/analytics/summary")
     data = response.json()
