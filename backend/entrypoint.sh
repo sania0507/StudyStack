@@ -3,10 +3,8 @@
 # Runs inside the container before the app.
 set -e
 
-# Which service this container is. Set by the blueprint/compose; defaults to
-# the auth service so a bare `docker run` still does something sensible.
+# Which service this container is (auth-service, main-app, analytics-service).
 SERVICE="${SERVICE_NAME:-auth-service}"
-
 SERVICE_DIR="/app/$SERVICE"
 
 if [ ! -d "$SERVICE_DIR" ]; then
@@ -16,16 +14,27 @@ fi
 
 cd "$SERVICE_DIR"
 
-# Render passes dockerCommand as ONE string such as
+# Render passes dockerCommand as ONE string, e.g.
 #   "cd /app/auth-service && uvicorn main:app --port 8000"
-# Compose passes a list. If a command is supplied, honour it; otherwise fall
-# back to the image CMD, and if that is empty, start the service directly.
+# Docker Compose passes a list. Either way the command often still contains
+# the service's own "cd /app/<service> &&", which is now redundant.
 if [ "$#" -gt 0 ]; then
   COMMAND="$*"
-  # Strip a redundant leading "cd /app/<service> &&" so we do not cd twice.
   COMMAND=$(echo "$COMMAND" | sed -E 's#^cd /app/[^&]+&& *##')
 else
   COMMAND=""
+fi
+
+# If nothing usable arrived, start the API server ourselves.
+case "$COMMAND" in
+  ""|cd*)
+    COMMAND="uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    ;;
+esac
+
+# Honour the platform's port even when the command hardcoded one.
+if [ -n "${PORT:-}" ]; then
+  COMMAND=$(echo "$COMMAND" | sed -E "s#--port [0-9]+#--port ${PORT}#")
 fi
 
 # Three DB modes:
@@ -47,11 +56,6 @@ print("Database tables are ready.")
 PY
 else
   echo "Skipping table creation for this service."
-fi
-
-# Never rely on CMD being present: Render may or may not pass one.
-if [ -z "$COMMAND" ]; then
-  COMMAND="uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
 fi
 
 echo "Starting in $PWD: $COMMAND"

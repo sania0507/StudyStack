@@ -1,10 +1,12 @@
-# Shared image for all three FastAPI services.
-# Docker Compose builds this once and each service points at it with a
-# different WORKDIR and CMD.
+# Shared image for the three FastAPI services.
+#
+# One image, three services: each container sets SERVICE_NAME (auth-service,
+# main-app, analytics-service) and the entrypoint runs that folder.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    SERVICE_NAME=auth-service
 
 WORKDIR /app
 
@@ -16,21 +18,19 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# The service code lives in sibling folders (auth-service, main-app,
-# analytics-service). Copying them all makes the image self-contained, which
-# is required on hosts like Render where there is no bind mount. Each service
-# then runs from its own folder via working_dir / dockerWorkDir.
+# The service code lives in sibling folders. Copying them all makes the image
+# self-contained, which hosts without a bind mount require.
 COPY auth-service /app/auth-service
 COPY main-app /app/main-app
 COPY analytics-service /app/analytics-service
 
-# Runs as a non-root user, which is what most hosts expect.
 RUN useradd --create-home --uid 1000 studystack \
     && chown -R studystack:studystack /app
 USER studystack
 
-# The entrypoint reads SERVICE_NAME to choose its folder, so the image has a
-# sensible default even when Render runs the CMD instead of dockerCommand.
-ENV SERVICE_NAME=auth-service
+# An explicit CMD (not just an ENTRYPOINT) so hosts that inspect the image
+# find a real command instead of an empty one. The entrypoint still decides
+# the folder from SERVICE_NAME and runs this.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ENTRYPOINT ["/app/entrypoint.sh"]
