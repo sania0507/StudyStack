@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from auth import get_current_user_id
 from reminders import send_due_reminders, start_scheduler, stop_scheduler
-from models import Base, Domain, Task,Subtask, Reminder #why did we import tasks? 
+from models import Base, Domain, Task,Subtask, Reminder, StudySession #why did we import tasks? 
 # Importing Task tells SQLAlchemy what the tasks table looks like, so Base.metadata.create_all() knows it needs to create/manage that table.
 from schemas import (
     DomainCreate,
@@ -23,6 +23,8 @@ from schemas import (
     ReminderCreate,
     ReminderUpdate,
     ReminderOut,
+    StudySessionCreate,
+    StudySessionOut,
 )
 
 
@@ -489,3 +491,49 @@ def delete_reminder(
     db.commit()
 
     return {"message": "Reminder deleted successfully"}
+
+# Study sessions
+
+@app.post("/sessions", response_model=StudySessionOut)
+def create_study_session(
+    session: StudySessionCreate,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    existing_domain = db.scalar(
+        select(Domain).where(
+            Domain.id == session.domain_id,
+            Domain.user_id == user_id,
+        )
+    )
+
+    if existing_domain is None:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    new_session = StudySession(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        domain_id=session.domain_id,
+        minutes=session.minutes,
+        finished_at=datetime.now(),
+    )
+
+    db.add(new_session)
+    db.commit()
+    db.refresh(new_session)
+
+    return new_session
+
+@app.get("/sessions", response_model=list[StudySessionOut])
+def get_study_sessions(
+    domain_id: uuid.UUID | None = None,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    query = select(StudySession).where(StudySession.user_id == user_id)
+
+    if domain_id is not None:
+        query = query.where(StudySession.domain_id == domain_id)
+
+    return db.scalars(query).all()
+
