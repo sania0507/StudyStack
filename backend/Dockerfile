@@ -29,5 +29,8 @@ RUN useradd --create-home --uid 1000 studystack \
     && chown -R studystack:studystack /app
 USER studystack
 
+# The entrypoint reads SERVICE_NAME to choose its folder, so the image has a
+# sensible default even when Render runs the CMD instead of dockerCommand.
+ENV SERVICE_NAME=auth-service
+
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

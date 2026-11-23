@@ -1,37 +1,37 @@
 #!/usr/bin/env bash
-# Prepares the database this service owns, then hands over to the real command.
-# Runs inside the container before the server starts.
+# Prepares the database this service owns, then starts the server.
+# Runs inside the container before the app.
 set -e
 
-if [ "$#" -eq 0 ]; then
-  echo "No command supplied." >&2
+# Which service this container is. Set by the blueprint/compose; defaults to
+# the auth service so a bare `docker run` still does something sensible.
+SERVICE="${SERVICE_NAME:-auth-service}"
+
+SERVICE_DIR="/app/$SERVICE"
+
+if [ ! -d "$SERVICE_DIR" ]; then
+  echo "Unknown SERVICE_NAME '$SERVICE' (looked in $SERVICE_DIR)" >&2
   exit 1
 fi
 
-# Render passes dockerCommand as ONE string, e.g.
+cd "$SERVICE_DIR"
+
+# Render passes dockerCommand as ONE string such as
 #   "cd /app/auth-service && uvicorn main:app --port 8000"
-# Docker Compose passes a list, e.g. ["uvicorn", "main:app"].
-COMMAND="$*"
+# Compose passes a list. If a command is supplied, honour it; otherwise fall
+# back to the image CMD, and if that is empty, start the service directly.
+if [ "$#" -gt 0 ]; then
+  COMMAND="$*"
+  # Strip a redundant leading "cd /app/<service> &&" so we do not cd twice.
+  COMMAND=$(echo "$COMMAND" | sed -E 's#^cd /app/[^&]+&& *##')
+else
+  COMMAND=""
+fi
 
-# Work out which folder this service should run from. Compose sets it via
-# working_dir, so $PWD is already correct and the "cd" is skipped. On Render
-# the only hint is the leading "cd /app/<service> &&" in the command, which
-# also has to happen BEFORE migrations run.
-case "$COMMAND" in
-  "cd "*"&&"*)
-    SERVICE_DIR=$(echo "$COMMAND" | sed -E 's/^cd ([^&]+)&&.*/\1/' | tr -d ' ')
-    if [ -d "$SERVICE_DIR" ]; then
-      cd "$SERVICE_DIR"
-    fi
-    ;;
-esac
-
-# Three modes, chosen per service:
+# Three DB modes:
 #   MIGRATE_ON_START=true   run alembic upgrade head
 #   CREATE_TABLES_ON_START  create_all() for services with simple tables
-#   neither                 do nothing (analytics: init_tables.py handles it)
-#
-# Exactly one service owns the shared schema, so nothing races.
+#   neither                 do nothing
 if [ "${MIGRATE_ON_START:-false}" = "true" ]; then
   echo "Running database migrations in $PWD ..."
   alembic upgrade head
@@ -49,7 +49,10 @@ else
   echo "Skipping table creation for this service."
 fi
 
-# Run the command through a shell: a bare exec of the compound string would
-# fail with status 128 because the whole string is one argument.
-echo "Starting: $COMMAND"
+# Never rely on CMD being present: Render may or may not pass one.
+if [ -z "$COMMAND" ]; then
+  COMMAND="uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
+fi
+
+echo "Starting in $PWD: $COMMAND"
 exec sh -c "$COMMAND"
