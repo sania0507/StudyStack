@@ -8,6 +8,7 @@ from models import Base, Subtask, Task, Reminder, StudySession
 # Base.metadata.create_all() knows what to create/manage.
 from reminders import start_scheduler, stop_scheduler
 from routers import (
+    analytics as analytics_router,
     domains as domains_router,
     reminders as reminders_router,
     sessions as sessions_router,
@@ -49,3 +50,4 @@ app.include_router(tasks_router.router)
 app.include_router(subtasks_router.router)
 app.include_router(reminders_router.router)
 app.include_router(sessions_router.router)
+app.include_router(analytics_router.router)

@@ -63,29 +63,3 @@ services:
       - key: CREATE_TABLES_ON_START
         value: "false"
 
-  - type: web
-    name: studystack-analytics
-    runtime: docker
-    plan: free
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    dockerCommand: cd /app/analytics-service && python init_tables.py && uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
-    envVars:
-      - key: SERVICE_NAME
-        value: "analytics-service"
-      - key: DATABASE_URL
-        sync: false
-      - key: JWT_SECRET_KEY
-        fromService:
-          type: web
-          name: studystack-auth
-          envVarKey: JWT_SECRET_KEY
-      - key: RABBITMQ_URL
-        sync: false
-      - key: CORS_ORIGINS
-        sync: false
-      # init_tables.py creates processed_events itself.
-      - key: CREATE_TABLES_ON_START
-        value: "false"
-

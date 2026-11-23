@@ -5,8 +5,7 @@
 # Ports (on your machine):
 #   3000  frontend (vite preview)
 #   8000  auth-service
-#   8001  task service (main-app)
-#   8002  analytics-service
+#   8001  task service (main-app, includes analytics)
 #   5432  PostgreSQL
 #   5672  RabbitMQ
 #
@@ -100,29 +99,6 @@ services:
       auth-service:
         condition: service_healthy
 
-  analytics-service:
-    build:
-      context: ./backend
-    working_dir: /app/analytics-service
-    # Creates only processed_events, then starts the read API.
-    command: ["sh", "-c", "python init_tables.py && uvicorn main:app --host 0.0.0.0 --port 8002"]
-    environment:
-      SERVICE_NAME: analytics-service
-      DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      CREATE_TABLES_ON_START: "false"
-    volumes:
-      - ./backend/analytics-service:/app/analytics-service
-    ports:
-      - "8002:8002"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-
 
   frontend:
     image: node:22-alpine
@@ -132,7 +108,6 @@ services:
     environment:
       VITE_AUTH_URL: http://localhost:8000
       VITE_MAIN_URL: http://localhost:8001
-      VITE_ANALYTICS_URL: http://localhost:8002
     volumes:
       - ./frontend:/app
       # A named volume keeps container-owned node_modules and dist out of
@@ -144,7 +119,6 @@ services:
     depends_on:
       - auth-service
       - task-service
-      - analytics-service
 
 volumes:
   postgres_data:

@@ -1,7 +1,7 @@
 # Shared image for the three FastAPI services.
 #
-# One image, three services: each container sets SERVICE_NAME (auth-service,
-# main-app, analytics-service) and the entrypoint runs that folder.
+# One image, two services: each container sets SERVICE_NAME (auth-service or
+# main-app) and the entrypoint runs that folder.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,11 +18,10 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# The service code lives in sibling folders. Copying them all makes the image
-# self-contained, which hosts without a bind mount require.
+# Service code is copied in so the image is self-contained; hosts without a
+# bind mount require that.
 COPY auth-service /app/auth-service
 COPY main-app /app/main-app
-COPY analytics-service /app/analytics-service
 
 RUN useradd --create-home --uid 1000 studystack \
     && chown -R studystack:studystack /app

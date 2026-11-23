@@ -11,7 +11,6 @@
 # Deploy any of the three services from this file, changing only SERVICE_NAME:
 #   SERVICE_NAME=auth-service      (auth API)
 #   SERVICE_NAME=main-app          (tasks, subtasks, reminders, sessions)
-#   SERVICE_NAME=analytics-service (statistics API)
 
 FROM python:3.12-slim
 
@@ -30,7 +29,6 @@ RUN chmod +x /app/entrypoint.sh
 
 COPY backend/auth-service /app/auth-service
 COPY backend/main-app /app/main-app
-COPY backend/analytics-service /app/analytics-service
 
 RUN useradd --create-home --uid 1000 studystack \
     && chown -R studystack:studystack /app

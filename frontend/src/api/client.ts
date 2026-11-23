@@ -17,8 +17,11 @@ import type { Domain, Session, Subtask, Task, User } from "@/api/types"
 
 const AUTH_URL = import.meta.env.VITE_AUTH_URL ?? "http://localhost:8000"
 const MAIN_URL = import.meta.env.VITE_MAIN_URL ?? "http://localhost:8001"
-const ANALYTICS_URL =
-  import.meta.env.VITE_ANALYTICS_URL ?? "http://localhost:8002"
+
+// Analytics is served by the task service now, so it needs no separate URL.
+// VITE_ANALYTICS_URL is still honoured if set, for anyone still running the
+// old standalone service.
+const ANALYTICS_URL = import.meta.env.VITE_ANALYTICS_URL ?? MAIN_URL
 
 const TOKEN_KEY = "studystack.token"
 
