@@ -27,8 +27,11 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         sync: false
-      - key: CREATE_TABLES_ON_START
+      # auth-service owns the users table and migrates it itself.
+      - key: MIGRATE_ON_START
         value: "true"
+      - key: CREATE_TABLES_ON_START
+        value: "false"
 
   - type: web
     name: studystack-tasks

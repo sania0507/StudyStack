@@ -45,9 +45,13 @@ export default function Profile() {
     setDetailsBusy(true)
     setDetailsMsg("")
     try {
-      const patch = await api.updateProfile({ name, email })
-      patchUser(patch) // push the change up into context -> navbar updates instantly
+      const updated = await api.updateProfile({ name, email })
+      // Push the server's version into context -> navbar updates instantly.
+      patchUser({ name: updated.name, email: updated.email })
       setDetailsMsg("Saved.")
+    } catch (err) {
+      // A 409 here means someone else already owns that email.
+      setDetailsMsg(err instanceof Error ? err.message : "Could not save changes.")
     } finally {
       setDetailsBusy(false)
     }

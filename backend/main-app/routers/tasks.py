@@ -2,18 +2,43 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from auth import get_current_user_id
 from database import get_db
 from events import publish_task_completed
-from models import Domain, Task
+from models import Domain, Reminder, Task
 from schemas import TaskCreate, TaskUpdate, TaskOut
 from services.deadlines import is_overdue, task_to_out
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+# The soonest still-pending reminder for each task, in one query rather
+# than one query per task.
+def pending_reminder_times(
+    db: Session,
+    task_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, datetime]:
+    if not task_ids:
+        return {}
+
+    rows = db.execute(
+        select(Reminder.task_id, func.min(Reminder.remind_at))
+        .where(
+            Reminder.task_id.in_(task_ids),
+            Reminder.sent_at.is_(None),
+        )
+        .group_by(Reminder.task_id)
+    ).all()
+
+    return {task_id: remind_at for task_id, remind_at in rows}
+
+
+def reminder_time_for(db: Session, task_id: uuid.UUID) -> datetime | None:
+    return pending_reminder_times(db, [task_id]).get(task_id)
 
 
 @router.post("", response_model=TaskOut)
@@ -45,7 +70,7 @@ def create_task(
     db.commit()
     db.refresh(new_task)
 
-    return task_to_out(new_task)
+    return task_to_out(new_task, reminder_time_for(db, new_task.id))
 
 
 @router.get("", response_model=list[TaskOut])
@@ -76,7 +101,12 @@ def get_tasks(
             if is_overdue(task) == overdue
         ]
 
-    return [task_to_out(task) for task in tasks]
+    reminder_times = pending_reminder_times(db, [task.id for task in tasks])
+
+    return [
+        task_to_out(task, reminder_times.get(task.id))
+        for task in tasks
+    ]
 
 
 @router.patch("/{task_id}", response_model=TaskOut)
@@ -121,7 +151,7 @@ def update_task(
             domain_id=existing_task.domain_id,
         )
 
-    return task_to_out(existing_task)
+    return task_to_out(existing_task, reminder_time_for(db, existing_task.id))
 
 
 @router.delete("/{task_id}")

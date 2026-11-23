@@ -4,7 +4,7 @@ import uuid
 
 import pika
 from sqlalchemy import select
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, engine
@@ -58,7 +58,10 @@ def handle_event(db: Session, message: dict) -> bool:
 def create_tables() -> None:
     try:
         Base.metadata.create_all(bind=engine)
-    except ProgrammingError:
+    except (IntegrityError, ProgrammingError):
+        # Losing the race is fine, but the failed transaction must be rolled
+        # back so the pool is not left holding an aborted connection.
+        engine.dispose()
         print("Tables already created by another container.")
 
 

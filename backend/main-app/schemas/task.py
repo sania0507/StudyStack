@@ -24,6 +24,8 @@ class TaskOut(BaseModel):
     completed_at: datetime | None
     due_date: datetime | None
     overdue: bool
+    # The soonest reminder still waiting to fire, so the UI can show a bell.
+    next_reminder_at: datetime | None = None
 
     model_config = {
         "from_attributes": True

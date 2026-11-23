@@ -103,12 +103,15 @@ type TokenResponse = { access_token: string; token_type: string }
 type BackendUser = {
   id: string
   email: string
+  name: string | null
   created_at: string
 }
 
-// The backend has no name or avatar yet, so we derive them for display.
+// Prefer the name the user chose; fall back to the email prefix so new
+// accounts still show something friendly.
 function toUser(user: BackendUser): User {
-  const name = user.email.split("@")[0]
+  const fallback = user.email.split("@")[0]
+  const name = user.name?.trim() || fallback
 
   return {
     id: user.id,
@@ -140,7 +143,7 @@ export async function register(
 ): Promise<User> {
   await request<BackendUser>(AUTH_URL, "/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, name }),
   })
 
   // Registering does not return a token, so log straight in.
@@ -223,6 +226,7 @@ type BackendTask = {
   completed_at: string | null
   due_date: string | null
   overdue: boolean
+  next_reminder_at: string | null
 }
 
 type BackendSubtask = {
@@ -239,6 +243,7 @@ function toTask(task: BackendTask, subtasks: Subtask[]): Task {
     title: task.title,
     completed: task.completed,
     dueDate: task.due_date ?? undefined,
+    remindAt: task.next_reminder_at ?? undefined,
     overdue: task.overdue,
     subtasks: subtasks.filter((sub) => sub.taskId === task.id),
   }
@@ -460,17 +465,27 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
 
 /* ---------------- profile ---------------- */
 
-// The auth service has no update endpoint yet, so these stay local.
+// The backend returns the updated user, so the context can trust the result.
 export async function updateProfile(
-  patch: Partial<User>,
-): Promise<Partial<User>> {
-  return patch
+  patch: { name?: string; email?: string },
+): Promise<User> {
+  const user = await request<BackendUser>(AUTH_URL, "/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  return toUser(user)
 }
 
 export async function changePassword(
-  current: string,
-  next: string,
+  currentPassword: string,
+  newPassword: string,
 ): Promise<void> {
-  if (current.length < 6) throw new Error("Current password is incorrect.")
-  if (next.length < 6) throw new Error("New password must be at least 6 characters.")
+  await request<void>(AUTH_URL, "/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  })
 }

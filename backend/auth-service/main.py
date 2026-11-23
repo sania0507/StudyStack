@@ -6,7 +6,14 @@ from sqlalchemy.exc import IntegrityError
 from auth import create_access_token, get_current_user
 from database import engine, get_db
 from models import Base, User
-from schemas import LoginRequest, Token, UserCreate, UserOut
+from schemas import (
+    LoginRequest,
+    PasswordChange,
+    Token,
+    UserCreate,
+    UserOut,
+    UserUpdate,
+)
 from security import hash_password, verify_password
 from settings import settings
 
@@ -59,6 +66,7 @@ def register_user(
     new_user = User(
         email=str(user_create.email),
         password_hash=hash_password(user_create.password),
+        name=user_create.name.strip() if user_create.name else None,
     )
 
     try:
@@ -131,3 +139,79 @@ def read_current_user(
     # If authentication fails, the dependency raises 401 and this function
     # does not execute.
     return current_user
+
+
+@app.patch("/auth/me", response_model=UserOut)
+def update_current_user(
+    update: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Only touch the fields the client actually sent.
+    if update.name is not None:
+        cleaned_name = update.name.strip()
+
+        # An empty name means "clear it", which is stored as NULL.
+        current_user.name = cleaned_name or None
+
+    if update.email is not None:
+        new_email = str(update.email)
+
+        if new_email != current_user.email:
+            taken = (
+                db.query(User)
+                .filter(User.email == new_email)
+                .first()
+            )
+
+            if taken is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email already registered",
+                )
+
+            current_user.email = new_email
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another request claimed the same email between the check and commit.
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
+
+    db.refresh(current_user)
+
+    return current_user
+
+
+@app.post("/auth/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # The current password must be proved before it can be replaced.
+    if not verify_password(
+        payload.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+
+    if len(payload.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="New password must be at least 8 characters",
+        )
+
+    current_user.password_hash = hash_password(payload.new_password)
+
+    db.commit()
+
+    return None

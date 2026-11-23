@@ -52,9 +52,10 @@ services:
       DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      # auth-service owns the users table. It runs first, so the task
-      # service's create_all (which touches domains/tasks/etc) is safe.
-      CREATE_TABLES_ON_START: "true"
+      # auth-service owns the users table and migrates it itself, so an
+      # existing deployment gains new columns automatically.
+      MIGRATE_ON_START: "true"
+      CREATE_TABLES_ON_START: "false"
     volumes:
       - ./backend/auth-service:/app/auth-service
     ports:
@@ -151,6 +152,9 @@ services:
       DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # consumer.py creates processed_events itself; the entrypoint must
+      # not also try to create the shared schema.
+      CREATE_TABLES_ON_START: "false"
     volumes:
       - ./backend/analytics-service:/app/analytics-service
     depends_on:

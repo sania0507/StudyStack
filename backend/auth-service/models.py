@@ -23,6 +23,13 @@ class User(Base):
         nullable=False,
     )
 
+    # Optional display name. When it is missing the frontend falls back to
+    # the part of the email before the @.
+    name: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+
     # This model defines a required string column for storing the password hash.
     # Hashing and encryption aren't the same. Encryption is designed to be reversible with a key; 
     # password hashing is designed for verification without recovering the original password.

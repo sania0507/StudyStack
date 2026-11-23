@@ -171,9 +171,15 @@ export default function Dashboard() {
       // A reminder is a separate resource, so it is created after the task.
       if (newRemind && newRemindAt) {
         await api.createReminder(created.id, new Date(newRemindAt).toISOString())
+
+        // Re-read the task so the bell badge shows the reminder time,
+        // which the backend now includes on each task.
+        const refreshed = await api.getTasks()
+        setTasks(refreshed)
+      } else {
+        setTasks((prev) => [...prev, created])
       }
 
-      setTasks((prev) => [...prev, created])
       setAddingTask(false)
     } catch (error) {
       console.error("Failed to create task:", error)

@@ -9,6 +9,8 @@ from pydantic import BaseModel, EmailStr, ConfigDict
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+    # Optional: registration works without a name.
+    name: str | None = None
 
 #UserOut
 #OUTPUT: what StudyStack sends back. Hence needs ConfigDict to take info from database and validate it using Pydantic.
@@ -20,7 +22,19 @@ class UserOut(BaseModel):
 
     id: UUID
     email: EmailStr
+    name: str | None = None
     created_at: datetime
+
+
+class UserUpdate(BaseModel):
+    # Both fields are optional, so the client can change just one.
+    name: str | None = None
+    email: EmailStr | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
 
 class LoginRequest(BaseModel): 
     # This represents the data the frontend sends when a user attempts to log in.

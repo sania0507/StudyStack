@@ -14,7 +14,10 @@ def is_overdue(task: Task) -> bool:
     )
 
 
-def task_to_out(task: Task) -> TaskOut:
+def task_to_out(
+    task: Task,
+    next_reminder_at: datetime | None = None,
+) -> TaskOut:
     return TaskOut(
         id=task.id,
         domain_id=task.domain_id,
@@ -23,4 +26,5 @@ def task_to_out(task: Task) -> TaskOut:
         completed_at=task.completed_at,
         due_date=task.due_date,
         overdue=is_overdue(task),
+        next_reminder_at=next_reminder_at,
     )
