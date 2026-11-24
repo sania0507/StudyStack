@@ -16,6 +16,9 @@ class VisionItemUpdate(BaseModel):
     x: float | None = Field(default=None, ge=0, le=100)
     y: float | None = Field(default=None, ge=0, le=100)
     caption: str | None = Field(default=None, max_length=200)
+    # 6% is a thumbnail, 60% is most of the wall. Bounded so a tile can never
+    # be resized to nothing or past the edge.
+    width: float | None = Field(default=None, ge=6, le=60)
 
 
 class VisionItemOut(BaseModel):
@@ -25,5 +28,6 @@ class VisionItemOut(BaseModel):
     # stays small no matter how many images it holds.
     x: float
     y: float
+    width: float
 
     model_config = {"from_attributes": True}

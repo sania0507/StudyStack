@@ -192,6 +192,9 @@ def update_vision_item(
     if payload.y is not None:
         item.y = payload.y
 
+    if payload.width is not None:
+        item.width = payload.width
+
     if payload.caption is not None:
         item.caption = payload.caption.strip() or None
 

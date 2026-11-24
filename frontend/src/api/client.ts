@@ -703,10 +703,17 @@ type BackendVisionItem = {
   caption: string | null
   x: number
   y: number
+  width: number
 }
 
 function toVisionItem(item: BackendVisionItem): VisionItem {
-  return { id: item.id, caption: item.caption, x: item.x, y: item.y }
+  return {
+    id: item.id,
+    caption: item.caption,
+    x: item.x,
+    y: item.y,
+    width: item.width,
+  }
 }
 
 export async function getVisionItems(): Promise<VisionItem[]> {
@@ -741,11 +748,11 @@ export async function addVisionFromUrl(
 
 export async function moveVisionItem(
   id: string,
-  position: { x: number; y: number },
+  patch: { x?: number; y?: number; width?: number },
 ): Promise<VisionItem> {
   const item = await request<BackendVisionItem>(MAIN_URL, `/vision-items/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(position),
+    body: JSON.stringify(patch),
   })
 
   return toVisionItem(item)

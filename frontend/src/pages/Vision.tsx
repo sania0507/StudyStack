@@ -32,7 +32,12 @@ import { Button, Card, Field, cx } from "@/components/ui"
 */
 
 const BOARD_HEIGHT_PX = 620
-const TILE_WIDTH_PX = 172
+
+// Width is a percentage of the board (matches the API bounds of 6..60), so a
+// resized tile keeps its proportion on any screen. Height is automatic: the
+// image keeps its own aspect ratio instead of being cropped to a square.
+const MIN_WIDTH = 6
+const MAX_WIDTH = 60
 
 /** Loose rotation per tile, derived from the id so it never jitters on re-render. */
 function tiltFor(id: string): number {
@@ -45,9 +50,12 @@ function tiltFor(id: string): number {
 
 type Dragging = {
   id: string
+  mode: "move" | "resize"
   // Offset from the image's top-left to where the pointer grabbed it.
   grabX: number
   grabY: number
+  // Board width in px, captured once at pointerdown so the maths stays simple.
+  boardWidthPx: number
 }
 
 /** New images appear in a loose grid so they never stack on top of each other. */
@@ -110,8 +118,15 @@ export default function Vision() {
     }
   }, [])
 
-  function startDrag(event: React.PointerEvent, item: VisionItem) {
+  function startDrag(
+    event: React.PointerEvent,
+    item: VisionItem,
+    mode: "move" | "resize" = "move",
+  ) {
     if (event.button !== 0) return
+
+    const board = boardRef.current
+    if (!board) return
 
     const target = event.currentTarget as HTMLElement
     const rect = target.getBoundingClientRect()
@@ -121,13 +136,35 @@ export default function Vision() {
     setSelected(item.id)
     setDragging({
       id: item.id,
+      mode,
       grabX: event.clientX - rect.left,
       grabY: event.clientY - rect.top,
+      boardWidthPx: board.getBoundingClientRect().width,
     })
   }
 
   function onPointerMove(event: React.PointerEvent) {
     if (!dragging) return
+
+    if (dragging.mode === "resize") {
+      const tile = items.find((i) => i.id === dragging.id)
+      if (!tile) return
+
+      // The tile's left edge stays put; the pointer sets the width. Dividing by
+      // the board width captured at pointerdown keeps it to one multiplication.
+      const board = boardRef.current
+      if (!board) return
+
+      const leftPx = board.getBoundingClientRect().left + (tile.x / 100) * dragging.boardWidthPx
+      const width = ((event.clientX - leftPx) / dragging.boardWidthPx) * 100
+
+      const clamped = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width))
+
+      setItems((prev) =>
+        prev.map((i) => (i.id === dragging.id ? { ...i, width: clamped } : i)),
+      )
+      return
+    }
 
     const next = toPercent(event.clientX, event.clientY, dragging)
     if (!next) return
@@ -141,14 +178,20 @@ export default function Vision() {
     if (!dragging) return
 
     const item = items.find((i) => i.id === dragging.id)
+    const mode = dragging.mode
     setDragging(null)
 
     if (!item) return
 
     try {
-      await api.moveVisionItem(item.id, { x: item.x, y: item.y })
+      await api.moveVisionItem(
+        item.id,
+        mode === "resize"
+          ? { width: Math.round(item.width * 10) / 10 }
+          : { x: item.x, y: item.y },
+      )
     } catch {
-      setError("Could not save that position.")
+      setError(mode === "resize" ? "Could not save that size." : "Could not save that position.")
     }
   }
 
@@ -333,7 +376,9 @@ export default function Vision() {
             tilt={tiltFor(item.id)}
             selected={selected === item.id}
             dragging={dragging?.id === item.id}
+            resizing={dragging?.id === item.id && dragging?.mode === "resize"}
             onPointerDown={(e) => startDrag(e, item)}
+            onResizeStart={(e) => startDrag(e, item, "resize")}
             onDelete={() => remove(item.id)}
           />
         ))}
@@ -355,14 +400,18 @@ function VisionTile({
   tilt,
   selected,
   dragging,
+  resizing,
   onPointerDown,
+  onResizeStart,
   onDelete,
 }: {
   item: VisionItem
   tilt: number
   selected: boolean
   dragging: boolean
+  resizing: boolean
   onPointerDown: (event: React.PointerEvent) => void
+  onResizeStart: (event: React.PointerEvent) => void
   onDelete: () => void
 }) {
   const [src, setSrc] = useState<string | null>(null)
@@ -391,12 +440,12 @@ function VisionTile({
       style={{
         left: `${item.x}%`,
         top: `${item.y}%`,
-        width: TILE_WIDTH_PX,
+        width: `${item.width}%`,
         // The resting tilt is a transform, and a dragged tile straightens up:
         // "picked it off the wall", then it settles back.
-        transform: dragging ? "scale(1.04) rotate(0deg)" : `rotate(${tilt}deg)`,
+        transform: dragging && !resizing ? "scale(1.04) rotate(0deg)" : `rotate(${tilt}deg)`,
         touchAction: "none",
-        cursor: dragging ? "grabbing" : "grab",
+        cursor: dragging ? (resizing ? "nwse-resize" : "grabbing") : "grab",
       }}
       className={cx(
         "ss-pop absolute select-none rounded-2xl border border-line/60 bg-elevated p-1.5 shadow-xl",
@@ -410,14 +459,10 @@ function VisionTile({
           src={src}
           alt={item.caption ?? "Vision board image"}
           draggable={false}
-          className="pointer-events-none w-full rounded-xl object-cover"
-          style={{ height: TILE_WIDTH_PX }}
+          className="pointer-events-none block h-auto w-full rounded-xl object-cover"
         />
       ) : (
-        <div
-          className="grid w-full place-items-center rounded-xl bg-surface text-xs text-faint"
-          style={{ height: TILE_WIDTH_PX }}
-        >
+        <div className="grid w-full place-items-center rounded-xl bg-surface py-10 text-xs text-faint">
           loading…
         </div>
       )}
@@ -429,15 +474,31 @@ function VisionTile({
       )}
 
       {selected && (
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onDelete}
-          aria-label="Remove from board"
-          className="absolute -right-2.5 -top-2.5 grid h-7 w-7 place-items-center rounded-full border border-line bg-base text-faint shadow-lg transition-colors hover:border-danger/50 hover:text-danger"
-        >
-          <Trash2 size={13} />
-        </button>
+        <>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onDelete}
+            aria-label="Remove from board"
+            className="absolute -right-2.5 -top-2.5 grid h-7 w-7 place-items-center rounded-full border border-line bg-base text-faint shadow-lg transition-colors hover:border-danger/50 hover:text-danger"
+          >
+            <Trash2 size={13} />
+          </button>
+
+          {/* Drag this corner to resize. It stops propagation so the tile does
+              not also start moving underneath the pointer. */}
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Resize this image"
+            title="Drag to resize"
+            onPointerDown={onResizeStart}
+            style={{ touchAction: "none" }}
+            className="absolute -bottom-2 -right-2 grid h-6 w-6 cursor-nwse-resize place-items-center rounded-full border border-violet-soft/60 bg-base text-violet-soft shadow-lg"
+          >
+            <span className="block h-2 w-2 rounded-[2px] border-b-2 border-r-2 border-current" />
+          </div>
+        </>
       )}
     </div>
   )

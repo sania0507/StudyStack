@@ -114,3 +114,42 @@ def test_a_link_that_is_not_an_image_is_refused(client):
     )
 
     assert response.status_code == 422
+
+
+def test_a_tile_can_be_resized(client):
+    item = add_by_upload(client)
+
+    resized = client.patch(f"/vision-items/{item['id']}", json={"width": 34})
+
+    assert resized.status_code == 200
+    assert resized.json()["width"] == 34
+
+    # ...and it is persisted.
+    assert client.get("/vision-items").json()[0]["width"] == 34
+
+
+def test_a_new_tile_has_a_default_width(client):
+    item = add_by_upload(client)
+
+    assert item["width"] > 0
+
+
+def test_resize_is_bounded(client):
+    item = add_by_upload(client)
+
+    # Too small to be a picture, too large to be a tile.
+    assert client.patch(f"/vision-items/{item['id']}", json={"width": 1}).status_code == 422
+    assert client.patch(f"/vision-items/{item['id']}", json={"width": 90}).status_code == 422
+
+
+def test_position_and_size_can_change_together(client):
+    item = add_by_upload(client)
+
+    moved = client.patch(
+        f"/vision-items/{item['id']}",
+        json={"x": 25, "y": 40, "width": 22},
+    )
+
+    assert moved.status_code == 200
+    body = moved.json()
+    assert (body["x"], body["y"], body["width"]) == (25, 40, 22)

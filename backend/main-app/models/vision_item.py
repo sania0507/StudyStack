@@ -44,3 +44,11 @@ class VisionItem(Base):
     # Where the user dropped it, 0..100 in both axes.
     x: Mapped[float] = mapped_column(default=0.0, nullable=False)
     y: Mapped[float] = mapped_column(default=0.0, nullable=False)
+
+    # Width as a percentage of the board, so a resized tile keeps its
+    # proportion on a phone. Height follows the image's own aspect ratio.
+    width: Mapped[float] = mapped_column(
+        default=16.0,
+        nullable=False,
+        server_default="16",
+    )

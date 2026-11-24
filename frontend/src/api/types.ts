@@ -59,4 +59,6 @@ export type VisionItem = {
   x: number
   /** Percentage of the board height, 0..100. */
   y: number
+  /** Percentage of the board width, 6..60. Height follows the image ratio. */
+  width: number
 }
