@@ -116,11 +116,7 @@ export default function Profile() {
 
       {/* ---------------- avatar ---------------- */}
       <Card className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
-        {user?.avatarUrl ? (
-          <UserAvatar key={user.avatarUrl} name={user.name} size={72} />
-        ) : (
-          <Avatar name={user?.name ?? "?"} size={72} />
-        )}
+        <UserAvatar key={user?.avatarUrl || "none"} name={user?.name ?? "?"} size={72} />
 
         <div className="flex flex-col gap-1">
           <span className="font-display text-lg font-semibold text-ink">{user?.name}</span>
@@ -225,26 +221,31 @@ export default function Profile() {
 /** Fetches the avatar with the bearer token, since <img> cannot send headers. */
 function UserAvatar({ name, size }: { name: string; size: number }) {
   const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    let revoked = false
+    let cancelled = false
     let objectUrl: string | null = null
 
     api
       .fetchAvatarObjectUrl()
       .then((url) => {
         objectUrl = url
-        if (url && !revoked) setSrc(url)
+        if (url && !cancelled) setSrc(url)
       })
-      .catch(() => undefined)
+      // A CORS failure, an expired token or a missing avatar all land here.
+      // Initials are the honest fallback: never a broken <img>.
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
 
     return () => {
-      revoked = true
+      cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [])
 
-  if (!src) return <Avatar name={name} size={size} />
+  if (!src || failed) return <Avatar name={name} size={size} />
 
   return (
     <img
@@ -252,6 +253,7 @@ function UserAvatar({ name, size }: { name: string; size: number }) {
       alt={`${name}'s profile picture`}
       width={size}
       height={size}
+      onError={() => setFailed(true)}
       className="rounded-full object-cover"
       style={{ width: size, height: size }}
     />

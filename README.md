@@ -10,6 +10,26 @@ Two FastAPI services, one React frontend, one PostgreSQL database.
 
 ---
 
+## Screenshots
+
+<!-- Drop image files into docs/screenshots/ and replace the paths below.
+     Every placeholder is a real file path, so the README renders as soon as
+     the PNGs exist — no link fixes needed. -->
+
+| Dashboard | Analytics |
+|---|---|
+| ![Dashboard, with domains, tasks and the focus timer](docs/screenshots/dashboard.png) | ![Analytics, with the weekly bars and the activity heatmap](docs/screenshots/analytics.png) |
+
+| Vision board | Notes |
+|---|---|
+| ![Vision board, with draggable resized images](docs/screenshots/vision.png) | ![Notes, with folders and the date timeline](docs/screenshots/notes.png) |
+
+| Landing | Profile |
+|---|---|
+| ![The landing page](docs/screenshots/landing.png) | ![Profile, with the stored avatar](docs/screenshots/profile.png) |
+
+---
+
 ## The Problem It Solves
 
 An erratic routine has two failure modes: deadlines you forgot, and no record of the effort you did put in. Both make it easy to conclude you're not doing enough when you are.
@@ -38,6 +58,10 @@ The design assumption is that you'll show up unpredictably. Bursts are expected,
   never processed twice by the same process.
 - A focus timer that records study sessions against a domain.
 - Analytics: hours per week, streak, overdue count, weekday split, per-domain completion, daily heatmap.
+- Recurring domains: mark a routine and its tasks untick themselves every morning, with the history kept.
+- A vision board: images you upload or paste in, then drag and resize freely.
+- Notes: folders, a date timeline, drag-to-reorder, pinning, search and markdown.
+- Profile pictures stored in Postgres and served behind the owner's token.
 - Docker Compose for local development.
 - Alembic migrations for both services.
 
@@ -175,6 +199,75 @@ same token four times too many and trip the reuse detector.
 
 ---
 
+## Routines
+
+A morning routine is the same five things every day, so a plain task list is
+the wrong shape for it: tick them once and they stay ticked forever.
+
+A domain can be marked `repeats_daily`. Its tasks keep the ordinary `completed`
+flag, but a task completed before today is unticked on the next read.
+
+![A recurring domain with its daily badge, next to a one-off domain](docs/screenshots/routines.png)
+
+The reset runs on `GET /tasks`, which makes it idempotent and removes the need
+for a scheduler: opening the app on a new day is enough. Clearing the tick
+would erase the evidence of the work, so every completion also writes a row to
+`task_completions`, unique per (task, day). The heatmap reads both sources and
+takes the larger per day, so a task still ticked today is never counted twice.
+
+---
+
+## Vision board
+
+A wall of images you drag around, because the reason to do the work is easier
+to remember as a picture than as a task list.
+
+![The vision board with several images at different sizes and angles](docs/screenshots/vision.png)
+
+Images are stored as bytes, not as links. The obvious build is "paste a
+Pinterest URL and render it", but Pinterest image URLs expire, so that board
+would quietly develop holes. A pasted link is fetched once on save and the
+bytes are kept, which also means uploads and links share one storage path.
+
+Positions and widths are percentages of the board rather than pixels, and the
+board is a fixed height on purpose: "40% from the top" then means the same
+thing on a laptop and a phone. Height is automatic, so a tall pin is tall
+rather than cropped to a square.
+
+Dragging uses pointer events with `setPointerCapture`, so an image keeps
+following the cursor even when the cursor outruns it, and `touch-action: none`
+so a trackpad moves the image rather than the page. One PATCH is sent on
+release, not one per `pointermove`.
+
+---
+
+## Notes
+
+A place for the writing that does not belong to a deadline: DSA notes, dev
+notes, a diary.
+
+![Notes with the folder rail on the left and a dated timeline on the right](docs/screenshots/notes.png)
+
+Folders are modelled like `domains` but kept separate on purpose — deleting a
+study domain should not take a diary entry with it.
+
+Two decisions that shape the page:
+
+- `created_at` anchors the timeline and `updated_at` is only an "edited" stamp.
+  Editing an old note must not push it to the top of the list.
+- Drag-to-reorder sets a `position` and **never touches `created_at`**: the
+  date beside a note says when it was written, and moving it is not editing.
+
+Pinned notes break the ordering deliberately and sort above it. Search is
+case-insensitive across title and body, and combines with the folder filter, so
+"search inside this folder" needs no second endpoint.
+
+Markdown is rendered by a small function that escapes HTML first and then
+applies headings, lists, bold, italic and inline code. No dependency, and a
+note can never inject markup.
+
+---
+
 ## API Overview
 
 ### auth-service (8000)
@@ -188,6 +281,9 @@ same token four times too many and trip the reuse detector.
 | GET | `/auth/me` | requires `Authorization: Bearer <token>` |
 | PATCH | `/auth/me` | update `name` and/or `email`; 409 if the email is taken |
 | POST | `/auth/change-password` | 204 on success, 401 if the current password is wrong. Revokes every refresh token for the user |
+| POST | `/auth/me/avatar` | multipart upload, PNG/JPEG/WebP, 512 KB cap |
+| GET | `/auth/me/avatar` | the image bytes, behind the bearer token |
+| DELETE | `/auth/me/avatar` | clears it |
 
 ### task-service (8001)
 
@@ -205,6 +301,15 @@ All routes require a Bearer token and are scoped to the caller's own data.
 | PATCH / DELETE | `/reminders/{reminder_id}` |
 | POST / GET | `/sessions` (filter: `domain_id`) |
 | GET | `/analytics/summary` (`?heatmap_days=30`) |
+| POST / GET | `/vision-items` (GET returns positions and widths; POST takes `image_url`) |
+| POST | `/vision-items/upload` (multipart, 2 MB cap) |
+| GET | `/vision-items/{item_id}/image` |
+| PATCH / DELETE | `/vision-items/{item_id}` (`x`, `y`, `width`, `caption`) |
+| POST / GET | `/note-folders` |
+| PATCH / DELETE | `/note-folders/{folder_id}` |
+| POST / GET | `/notes` (filters: `folder_id`, `search`) |
+| POST | `/notes/reorder` (a whole list, in its new order) |
+| PATCH / DELETE | `/notes/{note_id}` (`folder_id` moves it between folders) |
 | GET | `/health` |
 
 `TaskOut` includes `next_reminder_at`, the soonest pending reminder, so the UI shows a reminder badge without a second request.
@@ -270,7 +375,7 @@ cd backend/auth-service
 TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_auth_test pytest
 ```
 
-60 tests: 44 in the task service, 16 in auth.
+83 tests in the task service, 33 in auth.
 
 Covered: registration and duplicate email, login and wrong password, profile
 updates, password change, refresh rotation and reuse detection revoking the
@@ -309,7 +414,7 @@ Alembic owns the schema.
 
 | Service | Revision table | Owns |
 |---|---|---|
-| `task-service` | `alembic_version_tasks` | domains, tasks, subtasks, reminders, study_sessions |
+| `task-service` | `alembic_version_tasks` | domains, tasks, subtasks, reminders, study_sessions, task_completions, vision_items, note_folders, notes |
 | `auth-service` | `alembic_version_auth` | users, refresh_tokens |
 
 Migrations run at container start when `MIGRATE_ON_START=true`, so a first deploy against an empty database needs no manual step. To run by hand:
@@ -357,6 +462,14 @@ The image defines both an `ENTRYPOINT` and a `CMD`, so it starts whether the hos
 - The task service verifies the JWT signature without querying the database, so
   a token issued to a deleted user still decodes until it expires.
 - No rate limiting on `/auth/login` or `/auth/register`.
+- Vision and note images are stored in Postgres as bytes. Fine at this size,
+  wrong at scale: object storage is the answer once a few hundred users have
+  boards.
+- Note search is a `LIKE` scan, not full-text search. It will get slow at
+  thousands of notes; Postgres `tsvector` is the upgrade path.
+- Avatar and vision images are fetched with the bearer token and wrapped in
+  blob URLs, because `<img src>` cannot send headers. That means one extra
+  request per image and no browser caching across reloads.
 - The analytics week runs Monday to Sunday in server-local time.
 - Dashboard deletes are optimistic: the row disappears immediately and returns with an inline error banner if the server rejects it.
 - Passwords are hashed with Argon2 through `pwdlib` and hashes are never returned by any endpoint.

@@ -674,13 +674,24 @@ export async function deleteAvatar(): Promise<User> {
  * with URL.revokeObjectURL when the component unmounts.
  */
 export async function fetchAvatarObjectUrl(): Promise<string | null> {
-  const response = await fetch(`${AUTH_URL}/auth/me/avatar`, {
-    headers: authorizationHeader(),
-  })
+  // The endpoint URL never changes, and it is served with max-age=300, so a
+  // freshly uploaded avatar would come back as the cached old one. The query
+  // string is what makes each read a different cache entry.
+  const response = await fetch(
+    `${AUTH_URL}/auth/me/avatar?v=${Date.now()}`,
+    { headers: authorizationHeader() },
+  )
 
   if (!response.ok) return null
 
-  return URL.createObjectURL(await response.blob())
+  const blob = await response.blob()
+
+  // A cross-origin fetch that CORS blocks resolves as a rejected promise, but
+  // an empty or HTML body would still be a "successful" blob. Guard on type so
+  // the caller never gets something that renders as a broken image.
+  if (!blob.type.startsWith("image/")) return null
+
+  return URL.createObjectURL(blob)
 }
 
 export async function changePassword(
