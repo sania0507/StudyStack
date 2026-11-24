@@ -73,7 +73,7 @@ Two FastAPI services, one React frontend, one PostgreSQL database. Containerised
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, React Router |
 | Scheduling | APScheduler, running inside the task service's `lifespan` |
 | Tests | pytest, one test database per service |
-| Infra | Docker + Docker Compose, Vercel (frontend), Render (services), Neon (PostgreSQL) |
+| Infra | Docker + Docker Compose, Vercel (frontend), Railway (services), Neon (PostgreSQL) |
 
 ---
 
@@ -290,7 +290,7 @@ Migrations run at container start when `MIGRATE_ON_START=true`. To run by hand: 
 ## Deployment
 
 - React + Vite frontend on **Vercel**, with Root Directory set to `frontend`.
-- Two FastAPI services on **Render** (see `render.yaml`), built from one shared image and told apart by `SERVICE_NAME`.
+- Two FastAPI services on **Railway**, built from one shared image and told apart by `SERVICE_NAME`.
 - PostgreSQL on **Neon**, passed in as `DATABASE_URL` and using the `+psycopg` driver.
 
 | Variable | auth | tasks | Notes |
