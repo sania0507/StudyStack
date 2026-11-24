@@ -14,3 +14,11 @@ class Domain(Base):
         nullable=False,
         index=True,
     )
+
+    # A recurring domain is a routine: its tasks are things you do again every
+    # day (five prayers, four revision blocks). Yesterday's ticks are kept in
+    # task_completions, so resetting the tasks loses no history.
+    repeats_daily: Mapped[bool] = mapped_column(
+        default=False,
+        nullable=False,
+    )

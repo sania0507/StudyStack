@@ -4,7 +4,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from models import Domain, StudySession, Task
+from models import Domain, StudySession, Task, TaskCompletion
 
 
 # Analytics lives inside the task service because it only ever reads tables
@@ -157,18 +157,36 @@ def tasks_completed_by_day(db: Session, user_id: uuid.UUID) -> dict[date, int]:
     the one source for historical completions. Grouping in SQL keeps it to a
     single query regardless of task count.
     """
-    rows = db.execute(
-        select(func.date(Task.completed_at), func.count())
-        .select_from(Task)
-        .join(Domain, Task.domain_id == Domain.id)
-        .where(
-            Domain.user_id == user_id,
-            Task.completed_at.is_not(None),
-        )
-        .group_by(func.date(Task.completed_at))
-    ).all()
+    # Two sources, because a completion can be recorded either way: the flag on
+    # a task that is still ticked, and the log for tasks that have since been
+    # reset by a recurring domain. Taking the larger per day avoids
+    # double-counting a task that is both ticked now and logged today.
+    from_flag = dict(
+        db.execute(
+            select(func.date(Task.completed_at), func.count())
+            .select_from(Task)
+            .join(Domain, Task.domain_id == Domain.id)
+            .where(
+                Domain.user_id == user_id,
+                Task.completed_at.is_not(None),
+            )
+            .group_by(func.date(Task.completed_at))
+        ).all()
+    )
 
-    return {day: count for day, count in rows}
+    from_log = dict(
+        db.execute(
+            select(TaskCompletion.completed_on, func.count())
+            .select_from(TaskCompletion)
+            .join(Task, TaskCompletion.task_id == Task.id)
+            .join(Domain, Task.domain_id == Domain.id)
+            .where(Domain.user_id == user_id)
+            .group_by(TaskCompletion.completed_on)
+        ).all()
+    )
+
+    days = set(from_flag) | set(from_log)
+    return {day: max(from_flag.get(day, 0), from_log.get(day, 0)) for day in days}
 
 
 def heatmap(

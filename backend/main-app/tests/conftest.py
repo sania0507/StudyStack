@@ -119,3 +119,17 @@ def task_id(client, domain_id):
     )
     assert response.status_code == 200
     return response.json()["id"]
+
+
+@pytest.fixture
+def db_session():
+    """A session against the same test database the client writes to.
+
+    Needed when a test has to reach past the API and adjust a row directly,
+    for example to make a completion look like it happened yesterday.
+    """
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

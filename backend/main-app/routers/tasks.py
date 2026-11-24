@@ -10,6 +10,7 @@ from database import get_db
 from models import Domain, Reminder, Task
 from schemas import TaskCreate, TaskUpdate, TaskOut
 from services.deadlines import is_overdue, task_to_out
+from services.recurrence import record_completion, reset_recurring_tasks
 
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -80,6 +81,10 @@ def get_tasks(
     user_id: uuid.UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
+    # Cheap, idempotent, and it means the dashboard never needs a scheduler to
+    # be correct: opening the list on a new day resets yesterday's routine.
+    reset_recurring_tasks(db, user_id)
+
     query = (
         select(Task)
         .join(Domain, Task.domain_id == Domain.id)
@@ -149,6 +154,11 @@ def update_task(
         existing_task.completed_at = (
             datetime.now() if task.completed else None
         )
+
+        # Log the day it was finished. For recurring tasks the tick is cleared
+        # tomorrow, so this row is the only lasting record.
+        if task.completed:
+            record_completion(db, existing_task)
 
     db.commit()
     db.refresh(existing_task)

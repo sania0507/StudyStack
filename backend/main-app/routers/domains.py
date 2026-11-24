@@ -24,6 +24,7 @@ def create_domain(
         name=domain.name,
         colour="violet",
         user_id=user_id,
+        repeats_daily=domain.repeats_daily,
     )
 
     db.add(new_domain)
@@ -66,6 +67,9 @@ def update_domain(
 
     if domain.colour is not None:
         existing_domain.colour = domain.colour
+
+    if domain.repeats_daily is not None:
+        existing_domain.repeats_daily = domain.repeats_daily
 
     db.commit()
     db.refresh(existing_domain)
