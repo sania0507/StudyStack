@@ -30,7 +30,10 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 def analytics_summary(
     user_id: uuid.UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-    heatmap_days: int = Query(default=30, ge=1, le=365),
+    # A full year by default: the UI draws one cell per day under twelve month
+    # labels, and a 30-day window left most of those labels with no cells under
+    # them. Every day in the window gets a cell, including empty ones.
+    heatmap_days: int = Query(default=365, ge=1, le=366),
 ):
     sessions = db.scalars(
         select(StudySession).where(StudySession.user_id == user_id)
