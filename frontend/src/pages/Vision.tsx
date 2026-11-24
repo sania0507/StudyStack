@@ -131,10 +131,15 @@ export default function Vision() {
     const target = event.currentTarget as HTMLElement
     const rect = target.getBoundingClientRect()
 
-    // Capture on the element that received the press. For a resize that is the
-    // handle, which is a child of the tile, so the pointer events keep coming
-    // even when the cursor leaves the little circle.
-    target.setPointerCapture(event.pointerId)
+    // Capture on the BOARD, not the pressed element.
+    //
+    // setPointerCapture retargets every subsequent pointer event to the
+    // capturing element. Capturing on the resize handle therefore sent
+    // pointermove to the handle instead of the board, and the board is where
+    // onPointerMove lives — so the width was never recalculated and the tile
+    // only ever appeared to drag. The board owns the drag state, so the board
+    // owns the capture.
+    board.setPointerCapture(event.pointerId)
 
     setSelected(item.id)
     setDragging({
