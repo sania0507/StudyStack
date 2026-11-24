@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   FolderPlus,
+  GripVertical,
   Pin,
   PinOff,
   Pencil,
@@ -145,6 +146,12 @@ export default function Notes() {
   const [addingFolder, setAddingFolder] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  // Drag-to-reorder. The pointer never moves the DOM; it only changes the
+  // order of ids in state, and the list re-renders. On release we send that
+  // order to the server once.
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     const [folderList, noteList] = await Promise.all([
       api.getFolders(),
@@ -286,6 +293,52 @@ export default function Notes() {
       await load()
     } catch {
       setError("Could not move that note.")
+    }
+  }
+
+  // If the pointer is released over a gap, the handle, or outside the list,
+  // the per-article pointerup never fires. One document listener closes it.
+  useEffect(() => {
+    if (!dragId) return
+
+    function finish() {
+      void commitOrder()
+    }
+
+    document.addEventListener("pointerup", finish, { once: true })
+
+    return () => document.removeEventListener("pointerup", finish)
+  }, [dragId, notes])
+
+  function moveNoteInList(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return
+
+    setNotes((prev) => {
+      const next = [...prev]
+      const from = next.findIndex((n) => n.id === sourceId)
+      const to = next.findIndex((n) => n.id === targetId)
+
+      if (from === -1 || to === -1) return prev
+
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+
+      return next
+    })
+  }
+
+  async function commitOrder() {
+    const order = notes.map((n) => n.id)
+
+    setDragId(null)
+    setOverId(null)
+
+    try {
+      // created_at is untouched by the server; only the order changes.
+      await api.reorderNotes(order)
+    } catch {
+      setError("Could not save that order.")
+      await load()
     }
   }
 
@@ -480,9 +533,45 @@ export default function Notes() {
           {/* Notes are rendered as one continuous timeline with a date spine. */}
           <div className="flex flex-col">
             {notes.map((note) => (
-              <article key={note.id} className="group relative flex gap-4 pb-4">
+              <article
+                key={note.id}
+                onPointerEnter={() => {
+                  if (!dragId || dragId === note.id) return
+                  // Reorder live as the pointer crosses each note, so the list
+                  // moves under your finger like a real sortable list.
+                  setOverId(note.id)
+                  moveNoteInList(dragId, note.id)
+                }}
+                className={cx(
+                  "group relative flex gap-3 pb-4 transition-opacity",
+                  dragId === note.id && "opacity-60",
+                )}
+              >
+                {/* Drag handle. Kept separate from the note so selecting text
+                    inside a note never starts a drag. */}
+                <div className="flex w-6 shrink-0 flex-col items-center pt-1">
+                  <button
+                    type="button"
+                    aria-label="Drag to reorder"
+                    title="Drag to reorder"
+                    onPointerDown={(e) => {
+                      e.currentTarget.setPointerCapture(e.pointerId)
+                      setDragId(note.id)
+                      setOverId(note.id)
+                    }}
+                    style={{ touchAction: "none" }}
+                    className={cx(
+                      "cursor-grab rounded-md p-0.5 text-faint transition-opacity",
+                      "opacity-0 group-hover:opacity-100 focus:opacity-100",
+                      dragId === note.id && "cursor-grabbing opacity-100 text-violet-soft",
+                    )}
+                  >
+                    <GripVertical size={14} />
+                  </button>
+                </div>
+
                 {/* spine */}
-                <div className="flex w-12 shrink-0 flex-col items-center pt-1">
+                <div className="flex w-5 shrink-0 flex-col items-center pt-1">
                   <span
                     className={cx(
                       "h-2.5 w-2.5 rounded-full ring-4 ring-base",
@@ -492,7 +581,14 @@ export default function Notes() {
                   <span className="mt-1 w-px flex-1 bg-line" aria-hidden="true" />
                 </div>
 
-                <Card className="min-w-0 flex-1 transition-colors hover:border-violet-soft/30">
+                <Card
+                  className={cx(
+                    "min-w-0 flex-1 transition-colors",
+                    overId === note.id && dragId && dragId !== note.id
+                      ? "border-violet-soft/70"
+                      : "hover:border-violet-soft/30",
+                  )}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">

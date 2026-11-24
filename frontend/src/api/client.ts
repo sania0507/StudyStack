@@ -800,6 +800,7 @@ type BackendNote = {
   title: string
   body: string
   pinned: boolean
+  position: number
   created_at: string
   updated_at: string
 }
@@ -815,9 +816,19 @@ function toNote(note: BackendNote): Note {
     title: note.title,
     body: note.body,
     pinned: note.pinned,
+    position: note.position,
     createdAt: note.created_at,
     updatedAt: note.updated_at,
   }
+}
+
+export async function reorderNotes(noteIds: string[]): Promise<Note[]> {
+  const notes = await request<BackendNote[]>(MAIN_URL, "/notes/reorder", {
+    method: "POST",
+    body: JSON.stringify({ note_ids: noteIds }),
+  })
+
+  return notes.map(toNote)
 }
 
 export async function getFolders(): Promise<NoteFolder[]> {

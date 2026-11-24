@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -66,6 +66,16 @@ class Note(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
 
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    # Manual order, set by drag-and-drop. Lower sorts first. It does NOT touch
+    # created_at: dragging a note changes where it sits, never when it was
+    # written, so the date shown beside it stays true.
+    position: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
 
     # Pinned notes sit above the timeline regardless of date.
     pinned: Mapped[bool] = mapped_column(

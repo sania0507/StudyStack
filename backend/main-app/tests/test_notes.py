@@ -173,3 +173,61 @@ def test_a_note_cannot_be_written_into_a_missing_folder(client):
     )
 
     assert response.status_code == 404
+
+
+def test_dragging_reorders_without_touching_the_date(client):
+    folder = make_folder(client)
+    first = make_note(client, folder["id"], title="First")
+    second = make_note(client, folder["id"], title="Second")
+    third = make_note(client, folder["id"], title="Third")
+
+    # Newest first to begin with.
+    assert [n["title"] for n in client.get("/notes").json()] == ["Third", "Second", "First"]
+
+    reordered = client.post(
+        "/notes/reorder",
+        json={"note_ids": [first["id"], third["id"], second["id"]]},
+    )
+
+    assert reordered.status_code == 200
+    assert [n["title"] for n in client.get("/notes").json()] == ["First", "Third", "Second"]
+
+    # The dates are exactly what they were: dragging is not editing.
+    listed = {n["id"]: n for n in client.get("/notes").json()}
+    assert listed[first["id"]]["created_at"] == first["created_at"]
+    assert listed[second["id"]]["created_at"] == second["created_at"]
+    assert listed[third["id"]]["created_at"] == third["created_at"]
+
+
+def test_reorder_ignores_another_users_notes(client, second_user_client):
+    mine = make_folder(client)
+    my_note = make_note(client, mine["id"], title="Mine")
+
+    their_folder = second_user_client.post(
+        "/note-folders", json={"name": "theirs"}
+    ).json()
+    their_note = make_note(second_user_client, their_folder["id"], title="Theirs")
+
+    # A mixed list: the foreign id must be skipped, not fatal.
+    response = client.post(
+        "/notes/reorder",
+        json={"note_ids": [their_note["id"], my_note["id"]]},
+    )
+
+    assert response.status_code == 200
+    assert [n["id"] for n in response.json()] == [my_note["id"]]
+
+    # Their note is untouched.
+    theirs = second_user_client.get("/notes").json()
+    assert [n["id"] for n in theirs] == [their_note["id"]]
+
+
+def test_pinned_notes_still_sort_above_a_dragged_order(client):
+    folder = make_folder(client)
+    a = make_note(client, folder["id"], title="A")
+    b = make_note(client, folder["id"], title="B")
+
+    client.post("/notes/reorder", json={"note_ids": [a["id"], b["id"]]})
+    client.patch(f"/notes/{b['id']}", json={"pinned": True})
+
+    assert client.get("/notes").json()[0]["title"] == "B"

@@ -75,6 +75,8 @@ export type Note = {
   title: string
   body: string
   pinned: boolean
+  /** Manual drag order. Never affects createdAt. */
+  position: number
   createdAt: string
   updatedAt: string
 }

@@ -38,12 +38,19 @@ class NoteUpdate(BaseModel):
     pinned: bool | None = None
 
 
+class ReorderNotes(BaseModel):
+    """A drag-and-drop drops a whole new order for one list at once."""
+
+    note_ids: list[uuid.UUID] = Field(min_length=1)
+
+
 class NoteOut(BaseModel):
     id: uuid.UUID
     folder_id: uuid.UUID
     title: str
     body: str
     pinned: bool
+    position: int
     created_at: datetime
     updated_at: datetime
 

@@ -15,6 +15,7 @@ from schemas import (
     NoteCreate,
     NoteOut,
     NoteUpdate,
+    ReorderNotes,
 )
 
 
@@ -188,8 +189,11 @@ def get_notes(
             or_(Note.title.ilike(term), Note.body.ilike(term))
         )
 
+    # Manual order first, then the date as a tie-break for notes that have
+    # never been dragged (all position 0).
     query = query.order_by(
         Note.pinned.desc(),
+        Note.position.asc(),
         Note.created_at.desc(),
     )
 
@@ -252,6 +256,46 @@ def update_note(
     db.refresh(note)
 
     return note
+
+
+@router.post("/notes/reorder", response_model=list[NoteOut])
+def reorder_notes(
+    payload: ReorderNotes,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Saves a dragged order.
+
+    The client sends the ids of one list in their new order; each gets a
+    position of its index. created_at is never touched — the timeline is
+    about when a note was written, and dragging must not rewrite history.
+
+    Any id that is not the caller's is ignored rather than rejected, so a
+    stale list from another tab cannot fail the whole reorder.
+    """
+    owned = {
+        note.id: note
+        for note in db.scalars(
+            select(Note).where(
+                Note.user_id == user_id,
+                Note.id.in_(payload.note_ids),
+            )
+        ).all()
+    }
+
+    for index, note_id in enumerate(payload.note_ids):
+        note = owned.get(note_id)
+
+        if note is not None:
+            note.position = index
+
+    db.commit()
+
+    return [
+        owned[note_id]
+        for note_id in payload.note_ids
+        if note_id in owned
+    ]
 
 
 @router.delete("/notes/{note_id}")
