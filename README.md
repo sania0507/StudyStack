@@ -2,21 +2,21 @@
 
 Most study apps assume a routine you don't have. They want a weekly schedule, a fixed block for each subject, a plan made on Sunday that you follow on Tuesday. If you work in bursts instead — three hours tonight on one thing, nothing for four days, then panic — those apps ask you to be someone else before they'll help you.
 
-StudyStack tracks the work without demanding the schedule. You add what's due, break it into pieces, set deadlines that actually count down, and start a timer when the energy hits. It counts what you did, not what you planned to do.
+StudyStack tracks the work without demanding the schedule. Add what's due, break it into pieces, set deadlines that actually count down, and start a timer when the energy hits. **It counts what you did, not what you planned to do.**
 
 I built it because that's how I study.
 
-Two FastAPI services, one React frontend, one PostgreSQL database.
+Two FastAPI services, one React frontend, one PostgreSQL database. Containerised, deployed, 120 tests.
 
 ---
 
 ## Screenshots
 
 <!-- Screenshots live on GitHub user-attachment URLs. To replace one, drag a
-     new file into the GitHub markdown editor and copy the URL it produces —
-     it looks like https://github.com/user-attachments/assets/<id> — then swap
-     that id below. Keep the ![alt](url) shape: pasting the editor's HTML
-     snippet into the ( ) slot is what broke these before. -->
+     new file into the GitHub markdown editor and copy the URL it produces — it
+     looks like https://github.com/user-attachments/assets/<id> — then swap that
+     id below. Keep the ![alt](url) shape: pasting the editor's HTML snippet
+     into the ( ) slot is what broke these before. -->
 
 <table>
   <tr>
@@ -63,245 +63,139 @@ Two FastAPI services, one React frontend, one PostgreSQL database.
 
 ---
 
-## The Problem It Solves
+## Tech stack
 
-An erratic routine has two failure modes: deadlines you forgot, and no record of the effort you did put in. Both make it easy to conclude you're not doing enough when you are.
-
-StudyStack addresses each directly:
-
-- **Deadlines don't depend on discipline.** A due date is stored, and overdue is computed from it. Nothing needs you to check in for the system to know you're late.
-- **Effort is recorded where you work.** The timer writes a session against a domain when it finishes. There is no separate journal to keep up.
-- **Streaks reward consistency without requiring it.** A streak survives a day with no session, so one slow day doesn't wipe out three good ones.
-
-The design assumption is that you'll show up unpredictably. Bursts are expected, not treated as failure.
+| Layer | Used |
+|---|---|
+| Backend | Python 3.14, FastAPI, SQLAlchemy 2.0 (typed `Mapped` models), Pydantic v2, Alembic |
+| Database | PostgreSQL, psycopg 3 |
+| Auth | HS256 JWT (PyJWT), Argon2 password hashing (`pwdlib`) |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, React Router |
+| Scheduling | APScheduler, running inside the task service's `lifespan` |
+| Tests | pytest, one test database per service |
+| Infra | Docker + Docker Compose, Vercel (frontend), Render (services), Neon (PostgreSQL) |
 
 ---
 
-## What Is Included
+## What it does
 
-- Accounts with short-lived access tokens and rotating refresh tokens; every
-  request is scoped to the caller's own data.
-- Login, registration, profile editing (name and email) and password change.
-  Changing a password ends every other session.
-- Domain CRUD.
-- Task CRUD with optional due dates and completion tracking.
-- Subtask CRUD.
-- Overdue logic derived on read, never stored.
-- Reminders with a scheduled job that claims each one before it fires, so it is
-  never processed twice by the same process.
-- A focus timer that records study sessions against a domain.
-- Analytics: hours per week, streak, overdue count, weekday split, per-domain completion, daily heatmap.
-- Recurring domains: mark a routine and its tasks untick themselves every morning, with the history kept.
-- A vision board: images you upload or paste in, then drag and resize freely.
-- Notes: folders, a date timeline, drag-to-reorder, pinning, search and markdown.
-- Profile pictures stored in Postgres and served behind the owner's token.
-- Docker Compose for local development.
-- Alembic migrations for both services.
+| Area | Features |
+|---|---|
+| **Deadlines** | Domains → tasks → subtasks. Optional due dates, `overdue` derived on read. |
+| **Focus timer** | A finished block writes a study session against a domain. |
+| **Analytics** | Hours per week, streak, overdue count, weekday split, per-domain completion, year heatmap. |
+| **Reminders** | Per-task reminders fired by a 60-second scheduler that claims each row before it fires. |
+| **Routines** | A domain marked `repeats_daily` untick itself each morning, with the history kept. |
+| **Notes** | Folders, a date timeline, drag-to-reorder, pinning, search, markdown. |
+| **Vision board** | Images you upload or paste in, then drag and resize freely. |
+| **Accounts** | Short-lived access tokens with rotating refresh tokens; every request scoped to the caller's own data. |
 
 ---
 
 ## Architecture
 
 ```
-                    ┌────────────────────┐
-                    │    auth-service    │
-                    │  register / login  │
-                    │  JWT issuing       │
-                    │  profile editing   │
-                    └─────────┬──────────┘
-                              │ JWT
-                              ↓
-        ┌─────────────────────────────────────────┐
-        │        task-service (main-app)          │
-        │                                         │
-        │  Domains → Tasks → Subtasks             │
-        │  Due dates → Overdue logic              │
-        │  Reminders + scheduled job (60s tick)   │
-        │  Study sessions                         │
-        │  Analytics summary                      │
-        └────────────────┬────────────────────────┘
-                         │
-                         ↓
-                  ┌──────────────┐
-                  │  PostgreSQL  │
-                  │  (one DB,    │
-                  │  split       │
-                  │  ownership)  │
-                  └──────────────┘
+                  ┌────────────────────┐
+                  │    auth-service    │  :8000
+                  │  register / login  │  owns: users, refresh_tokens
+                  │  profile, avatar   │
+                  └─────────┬──────────┘
+                            │ JWT — verified by signature, no DB call
+                            ↓
+   ┌────────────────────────────────────────────────────────┐
+   │            task-service (main-app)             :8001    │
+   │                                                         │
+   │  deadlines   domains → tasks → subtasks                 │
+   │              due dates, derived overdue                 │
+   │  reminders   + scheduler (60s tick)                     │
+   │  sessions    focus timer records study sessions         │
+   │  analytics   /analytics/summary, computed on request    │
+   │  notes       note_folders → notes                       │
+   │  vision      vision_items (image bytes)                 │
+   └────────────────────────┬───────────────────────────────┘
+                            ↓
+                     ┌──────────────┐
+                     │  PostgreSQL  │  one database, split table ownership
+                     └──────────────┘
 ```
 
 | Service | Port | Owns |
 |---|---|---|
-| `auth-service` | 8000 | `users` |
-| `task-service` (`main-app`) | 8001 | `domains`, `tasks`, `subtasks`, `reminders`, `study_sessions` |
+| `auth-service` | 8000 | `users`, `refresh_tokens` |
+| `task-service` (`main-app`) | 8001 | `domains`, `tasks`, `subtasks`, `reminders`, `study_sessions`, `task_completions`, `note_folders`, `notes`, `vision_items` |
 | frontend | 3000 (dev) | React app, hosted on Vercel |
 
-Both services share one database but own separate tables. Each has its own Alembic revision table (`alembic_version_auth`, `alembic_version_tasks`) because two services writing to one `alembic_version` corrupt each other's revision chain.
+Both services share one database but own separate tables, and each has its own Alembic revision table (`alembic_version_auth`, `alembic_version_tasks`) because two services writing to one `alembic_version` corrupt each other's revision chain.
 
----
+### Where the notes and the vision board fit
 
-## From Three Services To Two
+Both are **routers inside the task service**, not services of their own — `routers/notes.py` and `routers/vision.py`, with `models/note.py` and `models/vision_item.py`.
 
-The original plan had three services: auth, tasks/deadlines, and analytics, with analytics fed by a RabbitMQ event stream. All three were built and ran locally.
+```
+task-service
+  ├── deadlines   domains → tasks → subtasks
+  ├── sessions / analytics
+  ├── notes       note_folders ──< notes        ← separate aggregate
+  └── vision      vision_items                  ← separate aggregate
+```
 
-Railway's free tier allows two services per project. Keeping analytics separate would have meant paying for a personal study tracker to keep a deployment boundary that was not doing any work.
+Why they belong in the same process:
 
-Analytics reads `study_sessions`, `tasks` and `domains` and writes nothing. It shared the task service's data completely, so the split gave no isolation and no independent scaling. It is now a router (`/analytics/summary`) in the task service, computing everything from the database on each request.
+- **They are plain per-user CRUD.** Two small tables, no scheduled work, no aggregation, no cross-service reads. A third and fourth service would add two deployments, two CORS origins and two JWT checks and buy no isolation.
+- **They inherit the same ownership model as everything else.** Every row carries `user_id`; every lookup goes through an `owned_note` / `owned_folder` / `owned_item` helper that scopes the query, so a note or a board tile is only ever visible to its owner. "Not yours" returns 404 rather than 403, because 404 does not confirm the id exists.
+- **They are deliberately not joined to `domains`.** A folder is modelled like a domain but kept separate, because deleting a study domain must not take a diary entry with it. Same reasoning for the vision board: separate aggregate, separate cascade, no foreign key into the study graph.
+- **The only external I/O is on save.** A pasted image link is fetched once when the item is created; nothing on the board depends on a third-party host at render time.
 
-Analytics queries now share a process with task writes. For a single-user tracker that is not a bottleneck, and it removed a deployment, a CORS origin, a JWT check and a broker requirement.
+The one thing they add that the rest of the app does not have: **binary data in Postgres.** `vision_items.image_data` and the user's avatar are `LargeBinary` columns, and both are served by an endpoint behind the owner's token (`GET /vision-items/{id}/image`, `GET /auth/me/avatar`). Because `<img src>` cannot send an `Authorization` header, the frontend fetches the bytes and wraps them in a blob URL. That costs one extra request per image and no browser caching across reloads — an accepted trade for keeping every image private by default.
 
----
+That choice is right at this size and wrong at a few hundred boards; object storage is the upgrade path, and only these two tables would change.
 
-## Events
-
-There is no message broker. Events were part of the three-service design: the
-task service published `session.completed` and `task.completed` to a RabbitMQ
-topic exchange for an analytics consumer that no longer exists.
-
-The publisher was removed once it was clear nothing would read from it. Every
-analytics number is computed from the database on request, so the events were
-write-only overhead: a broker connection opened and closed inside each request,
-for messages that were discarded because no queue was ever bound to the
-exchange.
-
-If a real consumer appears later, the right starting point is the
-transactional outbox pattern rather than a direct publish inside the request
-path, so an event cannot be lost between the commit and the broker.
-
-## Database Relationships
+### Data model
 
 ```
 users (auth-service)
-  ├──< refresh_tokens   (one row per issued token, hashed)
-  └── owns ──> domains.user_id
-                 │
-                 └──< tasks
-                        │
-                        ├──< subtasks
-                        └──< reminders
+  ├──< refresh_tokens            hashed, rotated, grouped by family_id
+  └── owns everything below, by user_id
 
 domains
-  └──< study_sessions   (also keyed by user_id)
+  ├──< tasks
+  │     ├──< subtasks
+  │     ├──< reminders
+  │     └──< task_completions    unique per (task, day) — routine history
+  └──< study_sessions
+
+note_folders ──< notes           separate aggregate: a domain delete
+vision_items                     must not take a diary entry with it
 ```
 
-`overdue` is never stored. It is computed from `due_date`, `completed` and the current time on every read.
+Deleting a domain cascades to its tasks, and from there to subtasks, reminders and completions; sessions cascade from the domain directly. No rows are left orphaned.
 
-Deleting a domain cascades to its tasks, and from there to subtasks and reminders; sessions cascade directly from the domain. No rows are left orphaned.
-
----
-
-## Authentication
-
-Login issues two tokens. The access token is a 30-minute HS256 JWT and is
-verified by signature alone, so neither service touches the database to
-authenticate a request. The refresh token is 30 days, opaque, and stored hashed
-in `refresh_tokens` in the auth service.
-
-A refresh token is a bearer credential, so the table keeps only its SHA-256
-hash and never the token itself. SHA-256 is deliberate here and Argon2 would be
-wrong: the token is 48 random bytes, so there is nothing to brute force, and
-every refresh needs a fast lookup.
-
-Rotation works like this:
-
-1. Look up `sha256(token)`. Unknown is a 401.
-2. Already revoked means the token was presented twice. Either the client or an
-   attacker holds it, and one row cannot say which, so the **whole family** is
-   revoked and both parties are forced to log in again.
-3. Otherwise claim it with a single conditional update,
-   `UPDATE ... WHERE id = ? AND revoked_at IS NULL`. If zero rows are affected,
-   another request rotated it first: same reuse treatment.
-4. Issue a new pair in the same family.
-
-`family_id` groups every token descended from one login, which is what makes
-step 2 possible. `replaced_by_id` records which token superseded which, so the
-chain is auditable.
-
-Step 3 is the part that has to be atomic. Reading the row and then revoking it
-would let two concurrent refreshes both pass the check and both issue tokens,
-silently breaking rotation. It is the same claim-before-work pattern the
-reminder worker needs.
-
-Expired rows are pruned whenever a new token is issued, keeping the table from
-growing without bound.
-
-On the client, `frontend/src/api/client.ts` refreshes once on a 401 and retries
-the request exactly once. Refresh is single-flight: five requests failing at
-the same moment produce one refresh, not five, because five would rotate the
-same token four times too many and trip the reuse detector.
+`overdue` is never stored. It is computed from `due_date`, `completed` and the current time on every read, so it can never disagree with the rows.
 
 ---
 
-## Routines
+## Decisions worth knowing
 
-A morning routine is the same five things every day, so a plain task list is
-the wrong shape for it: tick them once and they stay ticked forever.
+**Overdue is derived, not stored.** A boolean column would need a job to flip it and would be wrong between runs. Deriving it means the state is always a fact about the data, not a copy of it.
 
-A domain can be marked `repeats_daily`. Its tasks keep the ordinary `completed`
-flag, but a task completed before today is unticked on the next read.
+**Claim before work.** Two places need "exactly once" and both use the same trick — a single conditional update that succeeds or fails, rather than a read followed by a write.
 
-<img src="https://github.com/user-attachments/assets/6d86da99-85a2-4ae1-ac16-21f419a5d2a2" alt="A dashboard with a daily routine domain" width="760" />
+- *Refresh tokens:* `UPDATE ... WHERE id = ? AND revoked_at IS NULL`. Read-then-revoke would let two concurrent refreshes both pass the check and both issue tokens.
+- *Reminders:* `sent_at` is claimed the same way, so a reminder cannot fire twice, including across a restart.
 
-The reset runs on `GET /tasks`, which makes it idempotent and removes the need
-for a scheduler: opening the app on a new day is enough. Clearing the tick
-would erase the evidence of the work, so every completion also writes a row to
-`task_completions`, unique per (task, day). The heatmap reads both sources and
-takes the larger per day, so a task still ticked today is never counted twice.
+**Refresh tokens rotate, and reuse revokes the family.** Access tokens are 30-minute HS256 JWTs, verified by signature alone, so neither service touches the database to authenticate a request. The refresh token is 30 days, opaque, and stored as a SHA-256 hash — not Argon2, deliberately: it is 48 random bytes, so there is nothing to brute force and every refresh needs a fast lookup. Reuse of an already-rotated token means the client or an attacker holds it, and one row cannot say which, so the whole `family_id` is revoked and both parties log in again. On the client, refresh is single-flight: five simultaneous 401s produce one refresh, not five.
 
----
+**Routines reset on read.** A `repeats_daily` domain's tasks are unticked when `GET /tasks` sees a completion from before today. That makes the reset idempotent and needs no scheduler. Every completion also writes a `task_completions` row, so clearing the tick does not erase the evidence of the work; the heatmap reads both sources and takes the larger per day.
 
-## Vision board
+**Notes: `created_at` is the timeline, `position` is not a date.** Drag-to-reorder sets `position` and never touches `created_at`, and editing only moves `updated_at` — so the date beside a note says when it was written and dragging it is not editing. Markdown is rendered by a small escape-first function rather than a library, so a note cannot inject markup.
 
-A wall of images you drag around, because the reason to do the work is easier
-to remember as a picture than as a task list.
+**Vision board: images are bytes, positions are percentages.** Pinterest image URLs expire, so a board holding only links would quietly develop holes — a pasted link is fetched once on save and the bytes kept. Positions are percentages of a fixed-height board, so "40% from the top" means the same thing on a laptop and a phone, and height follows the image's own aspect ratio instead of cropping to a square. Dragging uses pointer events with `setPointerCapture` and one PATCH on release, not one per move.
 
-<img src="https://github.com/user-attachments/assets/e2560c2a-8516-4087-ac39-8eda8bbf34b5" alt="The vision board" width="760" />
-
-Images are stored as bytes, not as links. The obvious build is "paste a
-Pinterest URL and render it", but Pinterest image URLs expire, so that board
-would quietly develop holes. A pasted link is fetched once on save and the
-bytes are kept, which also means uploads and links share one storage path.
-
-Positions and widths are percentages of the board rather than pixels, and the
-board is a fixed height on purpose: "40% from the top" then means the same
-thing on a laptop and a phone. Height is automatic, so a tall pin is tall
-rather than cropped to a square.
-
-Dragging uses pointer events with `setPointerCapture`, so an image keeps
-following the cursor even when the cursor outruns it, and `touch-action: none`
-so a trackpad moves the image rather than the page. One PATCH is sent on
-release, not one per `pointermove`.
+**Two services, not three.** Analytics was originally its own service fed by RabbitMQ events. It read the same database, wrote nothing, and shared the task service's data completely — the split gave no isolation and no independent scaling, while the event publisher opened a broker connection inside each request to publish messages no queue was ever bound to. It is now a router (`/analytics/summary`) computed on request. One fewer deployment, CORS origin, JWT check and broker. If a real consumer ever appears, the right starting point is a transactional outbox, not a publish inside the request path.
 
 ---
 
-## Notes
-
-A place for the writing that does not belong to a deadline: DSA notes, dev
-notes, a diary.
-
-<img src="https://github.com/user-attachments/assets/dcdf1f66-482a-48d7-9bfb-2ff66746c5db" alt="The notes page" width="760" />
-
-Folders are modelled like `domains` but kept separate on purpose — deleting a
-study domain should not take a diary entry with it.
-
-Two decisions that shape the page:
-
-- `created_at` anchors the timeline and `updated_at` is only an "edited" stamp.
-  Editing an old note must not push it to the top of the list.
-- Drag-to-reorder sets a `position` and **never touches `created_at`**: the
-  date beside a note says when it was written, and moving it is not editing.
-
-Pinned notes break the ordering deliberately and sort above it. Search is
-case-insensitive across title and body, and combines with the folder filter, so
-"search inside this folder" needs no second endpoint.
-
-Markdown is rendered by a small function that escapes HTML first and then
-applies headings, lists, bold, italic and inline code. No dependency, and a
-note can never inject markup.
-
----
-
-## API Overview
+## API overview
 
 ### auth-service (8000)
 
@@ -309,82 +203,42 @@ note can never inject markup.
 |---|---|---|
 | POST | `/auth/register` | 409 if the email exists; `name` optional |
 | POST | `/auth/login` | returns an access token, a refresh token and `token_type` |
-| POST | `/auth/refresh` | exchanges a refresh token for a new pair; 401 if unknown, expired, revoked or already rotated |
-| POST | `/auth/logout` | 204; revokes the presented refresh token. Idempotent and unauthenticated, so an expired client can still end its session |
-| GET | `/auth/me` | requires `Authorization: Bearer <token>` |
-| PATCH | `/auth/me` | update `name` and/or `email`; 409 if the email is taken |
-| POST | `/auth/change-password` | 204 on success, 401 if the current password is wrong. Revokes every refresh token for the user |
-| POST | `/auth/me/avatar` | multipart upload, PNG/JPEG/WebP, 512 KB cap |
-| GET | `/auth/me/avatar` | the image bytes, behind the bearer token |
-| DELETE | `/auth/me/avatar` | clears it |
+| POST | `/auth/refresh` | new pair; 401 if unknown, expired, revoked or already rotated |
+| POST | `/auth/logout` | 204; revokes the presented token, idempotent and unauthenticated |
+| GET / PATCH | `/auth/me` | read, or update `name` and/or `email` (409 if taken) |
+| POST | `/auth/change-password` | 204; revokes every refresh token for the user |
+| POST / GET / DELETE | `/auth/me/avatar` | upload (PNG/JPEG/WebP, 512 KB), fetch behind the token, clear |
 
 ### task-service (8001)
 
-All routes require a Bearer token and are scoped to the caller's own data.
+Every route requires a Bearer token and is scoped to the caller's own data.
 
 | Method | Path |
 |---|---|
-| POST / GET | `/domains` |
-| PATCH / DELETE | `/domains/{domain_id}` |
-| POST / GET | `/tasks` (filters: `completed`, `overdue`, `domain_id`) |
-| PATCH / DELETE | `/tasks/{task_id}` |
-| POST / GET | `/subtasks` |
-| PATCH / DELETE | `/subtasks/{subtask_id}` |
-| POST / GET | `/reminders` (filters: `task_id`, `sent`) |
-| PATCH / DELETE | `/reminders/{reminder_id}` |
+| POST / GET | `/domains` · PATCH / DELETE `/domains/{id}` |
+| POST / GET | `/tasks` (filters: `completed`, `overdue`, `domain_id`) · PATCH / DELETE `/tasks/{id}` |
+| POST / GET | `/subtasks` · PATCH / DELETE `/subtasks/{id}` |
+| POST / GET | `/reminders` (filters: `task_id`, `sent`) · PATCH / DELETE `/reminders/{id}` |
 | POST / GET | `/sessions` (filter: `domain_id`) |
-| GET | `/analytics/summary` (`?heatmap_days=30`) |
-| POST / GET | `/vision-items` (GET returns positions and widths; POST takes `image_url`) |
-| POST | `/vision-items/upload` (multipart, 2 MB cap) |
-| GET | `/vision-items/{item_id}/image` |
-| PATCH / DELETE | `/vision-items/{item_id}` (`x`, `y`, `width`, `caption`) |
-| POST / GET | `/note-folders` |
-| PATCH / DELETE | `/note-folders/{folder_id}` |
-| POST / GET | `/notes` (filters: `folder_id`, `search`) |
-| POST | `/notes/reorder` (a whole list, in its new order) |
-| PATCH / DELETE | `/notes/{note_id}` (`folder_id` moves it between folders) |
+| GET | `/analytics/summary?heatmap_days=30` |
+| POST / GET | `/vision-items` · POST `/vision-items/upload` · GET `/vision-items/{id}/image` · PATCH / DELETE `/vision-items/{id}` |
+| POST / GET | `/note-folders` · PATCH / DELETE `/note-folders/{id}` |
+| POST / GET | `/notes` (filters: `folder_id`, `search`) · POST `/notes/reorder` · PATCH / DELETE `/notes/{id}` |
 | GET | `/health` |
 
-`TaskOut` includes `next_reminder_at`, the soonest pending reminder, so the UI shows a reminder badge without a second request.
+`TaskOut` includes `next_reminder_at`, the soonest pending reminder, so the UI can show a reminder badge without a second request. Interactive docs are at `/docs` on both services.
 
 ---
 
-## Reminders
-
-1. A reminder row has `remind_at` and a nullable `sent_at`.
-2. A scheduler inside the task service ticks every 60 seconds, started from the FastAPI `lifespan`.
-3. It selects reminders where `remind_at <= now` and `sent_at IS NULL`.
-4. Completed and deleted tasks are closed out without firing.
-5. Each processed reminder gets `sent_at` set, so one is never sent twice, including across restarts.
-
-`max_instances=1` prevents a slow tick overlapping the next.
-
-On hosts that sleep idle services the tick pauses with the service, so reminders fire on the next wake rather than exactly on time.
-
----
-
-## Analytics
-
-`GET /analytics/summary` returns, per user:
-
-- hours/week: session minutes inside the current Monday-Sunday window
-- streak: consecutive days with at least one session, still alive if the last session was yesterday
-- overdue count: incomplete tasks whose `due_date` has passed
-- total minutes, sessions per day, weekday split, per-domain completion and a daily heatmap
-
-Everything is computed on request, so the numbers always match the underlying rows.
-
----
-
-## Local Setup
+## Run it locally
 
 ```bash
 docker compose up --build
 ```
 
-Open http://localhost:3000.
+Then open http://localhost:3000. Migrations run on container start, so an empty database needs no manual step.
 
-Without Docker, run each piece in its own shell. Each service needs its own `.env`; copy the matching `.env.example`:
+Without Docker, one shell per piece. Each service needs its own `.env`, copied from its `.env.example`:
 
 ```bash
 cd backend/auth-service && uvicorn main:app --port 8000
@@ -392,13 +246,13 @@ cd backend/main-app     && uvicorn main:app --port 8001
 cd frontend             && npm install && npm run dev
 ```
 
-The frontend reads `VITE_AUTH_URL` and `VITE_MAIN_URL`, defaulting to `http://localhost:8000` and `http://localhost:8001`. Analytics uses the task-service URL, so there is no third variable.
+The frontend reads `VITE_AUTH_URL` and `VITE_MAIN_URL`, defaulting to `http://localhost:8000` and `http://localhost:8001`. Analytics is served by the task service, so there is no third variable.
 
 ---
 
 ## Tests
 
-Each service has its own test database and the fixtures refuse to run against any other name.
+120 tests — 87 in the task service, 33 in auth. Each service has its own test database, and the fixtures refuse to run against any other name.
 
 ```bash
 cd backend/main-app
@@ -408,64 +262,36 @@ cd backend/auth-service
 TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_auth_test pytest
 ```
 
-83 tests in the task service, 33 in auth.
-
-Covered: registration and duplicate email, login and wrong password, profile
-updates, password change, refresh rotation and reuse detection revoking the
-family, refresh-token expiry, logout idempotency, CRUD for every resource,
-cross-user isolation on read, update and delete, completion timestamps, overdue
-derivation across all four due-date cases, clearing a due date, reminder
-idempotency, domain cascade to tasks and nested children, and analytics
-windowing and scoping.
-
-Running the suites inside the compose network avoids Docker Desktop's WSL port
-forwarding, which is unreliable for PostgreSQL connections:
-
-```bash
-DB=postgresql+psycopg://studystack_user:studystack_dev_password@postgres:5432
-
-docker compose run --rm -e SERVICE_NAME=auth-service   -e TEST_DATABASE_URL=$DB/studystack_auth_test   task-service python -m pytest -q
-
-docker compose run --rm -e SERVICE_NAME=main-app   -e TEST_DATABASE_URL=$DB/studystack_main_test   task-service python -m pytest -q
-```
-
-`SERVICE_NAME` is what selects the folder: the entrypoint changes into that
-service's directory and runs its migrations before starting the command, so
-`-w` has no effect.
+Covered: registration and duplicate email, login and wrong password, refresh rotation and reuse detection revoking the family, token expiry, logout idempotency, profile and password change; CRUD for every resource including notes and the vision board; cross-user isolation on read, update and delete; completion timestamps; overdue derivation across all four due-date cases; reminder idempotency; domain cascade to tasks and nested children; routine reset and the `task_completions` history; analytics windowing and scoping.
 
 Create the test databases once:
 
 ```bash
-docker compose exec postgres psql -U studystack_user -d studystack   -c "CREATE DATABASE studystack_auth_test;"   -c "CREATE DATABASE studystack_main_test;"
+docker compose exec postgres psql -U studystack_user -d studystack \
+  -c "CREATE DATABASE studystack_auth_test;" \
+  -c "CREATE DATABASE studystack_main_test;"
 ```
 
 ---
 
 ## Migrations
 
-Alembic owns the schema.
+Alembic owns the schema; `create_all()` is not used in production.
 
 | Service | Revision table | Owns |
 |---|---|---|
 | `task-service` | `alembic_version_tasks` | domains, tasks, subtasks, reminders, study_sessions, task_completions, vision_items, note_folders, notes |
 | `auth-service` | `alembic_version_auth` | users, refresh_tokens |
 
-Migrations run at container start when `MIGRATE_ON_START=true`, so a first deploy against an empty database needs no manual step. To run by hand:
-
-```bash
-cd backend/main-app     && alembic upgrade head
-cd backend/auth-service && alembic upgrade head
-```
+Migrations run at container start when `MIGRATE_ON_START=true`. To run by hand: `alembic upgrade head` from either service directory.
 
 ---
 
 ## Deployment
 
-- React + Vite frontend on Vercel, with Root Directory set to `frontend`.
-- Two FastAPI services on Railway, built from one shared Dockerfile.
-- PostgreSQL on Neon, passed in as `DATABASE_URL` and using the `+psycopg` driver.
-
-Both services build from the same image and pick their folder from `SERVICE_NAME`.
+- React + Vite frontend on **Vercel**, with Root Directory set to `frontend`.
+- Two FastAPI services on **Render** (see `render.yaml`), built from one shared image and told apart by `SERVICE_NAME`.
+- PostgreSQL on **Neon**, passed in as `DATABASE_URL` and using the `+psycopg` driver.
 
 | Variable | auth | tasks | Notes |
 |---|---|---|---|
@@ -476,39 +302,20 @@ Both services build from the same image and pick their folder from `SERVICE_NAME
 | `MIGRATE_ON_START` | `true` | `true` | runs `alembic upgrade head` |
 | `PORT` | platform-set | platform-set | honoured by the entrypoint |
 
-`JWT_SECRET_KEY` must match across both. If they differ, login succeeds but every later request returns 401, because auth signs tokens the task service cannot verify.
-
-The image defines both an `ENTRYPOINT` and a `CMD`, so it starts whether the host passes a command string or nothing.
+`JWT_SECRET_KEY` must match across both. If they differ, login succeeds and every later request returns 401, because auth signs tokens the task service cannot verify.
 
 ---
 
-## Notes
+## Known limitations
 
-- Deleting a domain removes its tasks, subtasks, reminders and sessions.
-- Reminder delivery is a line in the server log. Swapping in email or push does not change the bookkeeping.
-- `max_instances=1` only stops overlapping runs inside one process. Two API
-  instances would still both scan the same rows, so a second instance needs an
-  atomic claim or a worker outside the web process.
-- No endpoint paginates. Every list returns everything the user owns.
-- Analytics aggregates in Python, one pass per request. Fine for a personal
-  tracker, a timeout for years of history. The fix is `GROUP BY` in SQL.
-- The task service verifies the JWT signature without querying the database, so
-  a token issued to a deleted user still decodes until it expires.
 - No rate limiting on `/auth/login` or `/auth/register`.
-- Vision and note images are stored in Postgres as bytes. Fine at this size,
-  wrong at scale: object storage is the answer once a few hundred users have
-  boards.
-- Note search is a `LIKE` scan, not full-text search. It will get slow at
-  thousands of notes; Postgres `tsvector` is the upgrade path.
-- Avatar and vision images are fetched with the bearer token and wrapped in
-  blob URLs, because `<img src>` cannot send headers. That means one extra
-  request per image and no browser caching across reloads.
+- Tokens live in `localStorage`, so one XSS is a stolen session. `HttpOnly` cookies would be safer and would need CSRF handling plus a same-site deployment.
+- No endpoint paginates; every list returns everything the user owns. Note search is a `LIKE` scan, not full-text — Postgres `tsvector` is the upgrade path.
+- Analytics aggregates in Python, one pass per request. Fine for a personal tracker, a timeout for years of history; the fix is `GROUP BY` in SQL.
+- Reminder delivery is a line in the server log. Swapping in email or push does not change the bookkeeping.
+- `max_instances=1` only stops overlapping runs inside one process. Two API instances would both scan the same rows, so a second instance needs an atomic claim or a worker outside the web process.
+- On hosts that sleep idle services the reminder tick pauses with the service, so reminders fire on the next wake rather than exactly on time.
+- The task service verifies the JWT signature without querying the database, so a token issued to a deleted user still decodes until it expires.
+- Vision and avatar images are stored in Postgres as bytes. Fine at this size, wrong at scale.
 - The analytics week runs Monday to Sunday in server-local time.
 - Dashboard deletes are optimistic: the row disappears immediately and returns with an inline error banner if the server rejects it.
-- Passwords are hashed with Argon2 through `pwdlib` and hashes are never returned by any endpoint.
-- Access tokens expire after 30 minutes; a refresh token buys a new pair without
-  asking for the password again. Refresh tokens are rotated on every use, and
-  reuse of an old one revokes the whole family.
-- Tokens live in `localStorage`, so one XSS is a stolen session. `HttpOnly`
-  cookies would be safer and would need CSRF handling plus a same-site
-  deployment.
