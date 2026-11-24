@@ -18,15 +18,23 @@ Two FastAPI services, one React frontend, one PostgreSQL database.
 
 | Dashboard | Analytics |
 |---|---|
-| ![Dashboard, with domains, tasks and the focus timer](docs/screenshots/dashboard.png) | ![Analytics, with the weekly bars and the activity heatmap](docs/screenshots/analytics.png) |
+| ![Dashboard, with domains, tasks and the focus timer](<img width="954" height="410" alt="image" src="https://github.com/user-attachments/assets/ae260e3d-a5f2-4327-afcb-977145852177" /> <img width="958" height="406" alt="image" src="https://github.com/user-attachments/assets/6d86da99-85a2-4ae1-ac16-21f419a5d2a2" />
+
+) | ![Analytics, with the weekly bars and the activity heatmap](<img width="959" height="404" alt="image" src="https://github.com/user-attachments/assets/1750454f-763b-41df-846f-9e911af21d78" /> <img width="959" height="402" alt="image" src="https://github.com/user-attachments/assets/aa553380-f79e-4e39-a103-6901bccb715d" />
+
+) |
 
 | Vision board | Notes |
 |---|---|
-| ![Vision board, with draggable resized images](docs/screenshots/vision.png) | ![Notes, with folders and the date timeline](docs/screenshots/notes.png) |
+| ![Vision board, with draggable resized images](<img width="935" height="414" alt="image" src="https://github.com/user-attachments/assets/e2560c2a-8516-4087-ac39-8eda8bbf34b5" />
+) | ![Notes, with folders and the date timeline](<img width="959" height="413" alt="image" src="https://github.com/user-attachments/assets/dcdf1f66-482a-48d7-9bfb-2ff66746c5db" />
+) |
 
 | Landing | Profile |
 |---|---|
-| ![The landing page](docs/screenshots/landing.png) | ![Profile, with the stored avatar](docs/screenshots/profile.png) |
+| ![The landing page](<img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/a6f8cafc-b703-4900-816f-6451201641c4" />
+) | ![Profile, with the stored avatar](<img width="959" height="410" alt="image" src="https://github.com/user-attachments/assets/944520c6-8a58-4aa5-83bf-30e07caa9756" />
+) |
 
 ---
 
