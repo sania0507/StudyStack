@@ -101,3 +101,63 @@
 .ss-rise {
   animation: ss-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* ---------------------------------------------------------------
+   Vision board decoration.
+   Everything here is cosmetic: it must never change layout or
+   intercept pointer events, or dragging would break.
+   --------------------------------------------------------------- */
+
+/* A faint dotted grid, so a sparse board still reads as a board. */
+.ss-board-grid {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--color-line) 70%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 26px 26px;
+}
+
+/* A slow drift for the aurora blobs behind the empty state. */
+@keyframes ss-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(18px, -14px, 0) scale(1.08);
+  }
+}
+
+.ss-drift {
+  animation: ss-drift 14s ease-in-out infinite;
+}
+
+.ss-drift-slow {
+  animation: ss-drift 22s ease-in-out infinite reverse;
+}
+
+/* Tiles settle in rather than snapping, so a fresh image feels placed. */
+@keyframes ss-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-2deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.ss-pop {
+  animation: ss-pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+}
+
+/* Respect the OS setting. Motion is decoration, never information. */
+@media (prefers-reduced-motion: reduce) {
+  .ss-drift,
+  .ss-drift-slow,
+  .ss-pop,
+  .ss-rise {
+    animation: none !important;
+  }
+}

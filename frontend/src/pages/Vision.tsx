@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Plus, Trash2, Upload } from "lucide-react"
+import { ImagePlus, Link2, Sparkles, Trash2, Upload } from "lucide-react"
 import * as api from "@/api/client"
 import type { VisionItem } from "@/api/types"
 import { Button, Card, Field, cx } from "@/components/ui"
@@ -25,10 +25,23 @@ import { Button, Card, Field, cx } from "@/components/ui"
 
   setPointerCapture is what makes the image keep receiving
   events even when the cursor outruns it.
+
+  Everything decorative (.ss-board-grid, .ss-drift, .ss-pop) is
+  pointer-events-none: a pretty gradient must never swallow a
+  drag.
 */
 
 const BOARD_HEIGHT_PX = 620
-const IMAGE_SIZE_PX = 168
+const TILE_WIDTH_PX = 172
+
+/** Loose rotation per tile, derived from the id so it never jitters on re-render. */
+function tiltFor(id: string): number {
+  let hash = 0
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) % 1000
+
+  // -4 .. +4 degrees: enough to feel hand-placed, not enough to look broken.
+  return (hash / 1000) * 8 - 4
+}
 
 type Dragging = {
   id: string
@@ -43,8 +56,8 @@ function nextFreeSpot(items: VisionItem[]): { x: number; y: number } {
   const index = items.length
 
   return {
-    x: 6 + (index % perRow) * 22,
-    y: 8 + (Math.floor(index / perRow) % 4) * 22,
+    x: 5 + (index % perRow) * 23,
+    y: 7 + (Math.floor(index / perRow) % 4) * 23,
   }
 }
 
@@ -91,19 +104,13 @@ export default function Vision() {
     const leftPx = clientX - grab.grabX - rect.left
     const topPx = clientY - grab.grabY - rect.top
 
-    const x = (leftPx / rect.width) * 100
-    const y = (topPx / rect.height) * 100
-
-    // Keep at least a sliver on the board: 0..100 of the *image's* top-left,
-    // with a floor that still lets most of it hang over the edge.
     return {
-      x: Math.min(100, Math.max(0, x)),
-      y: Math.min(100, Math.max(0, y)),
+      x: Math.min(100, Math.max(0, (leftPx / rect.width) * 100)),
+      y: Math.min(100, Math.max(0, (topPx / rect.height) * 100)),
     }
   }, [])
 
   function startDrag(event: React.PointerEvent, item: VisionItem) {
-    // Ignore right-click and anything that is not a primary press.
     if (event.button !== 0) return
 
     const target = event.currentTarget as HTMLElement
@@ -154,8 +161,7 @@ export default function Vision() {
 
     try {
       const created = await api.addVisionFromUpload(file)
-      const spot = nextFreeSpot(items)
-      const placed = await api.moveVisionItem(created.id, spot)
+      const placed = await api.moveVisionItem(created.id, nextFreeSpot(items))
       setItems((prev) => [...prev, placed])
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add that image.")
@@ -206,11 +212,15 @@ export default function Vision() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      {/* ---------------- header ---------------- */}
+      <div className="ss-rise flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">Vision board</h1>
+          <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight text-ink">
+            Vision board
+            <Sparkles size={18} className="text-violet-soft" aria-hidden="true" />
+          </h1>
           <p className="mt-1 text-sm text-muted">
-            Drag images anywhere. This is the reason the rest of it matters.
+            The version of you this is all for. Drag things until it feels right.
           </p>
         </div>
 
@@ -231,13 +241,14 @@ export default function Vision() {
             onClick={() => setShowLink((v) => !v)}
             disabled={busy}
           >
-            <Plus size={14} /> Paste a link
+            <Link2 size={14} /> Paste a link
           </Button>
         </div>
       </div>
 
+      {/* ---------------- paste-a-link panel ---------------- */}
       {showLink && (
-        <Card>
+        <Card className="ss-rise">
           <form onSubmit={addLink} className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <Field
@@ -247,9 +258,10 @@ export default function Vision() {
                 onChange={(e) => setLink(e.target.value)}
                 autoFocus
               />
-              <p className="mt-1 text-[11px] text-faint">
-                On Pinterest: right-click the pin → Copy image address. The image is saved to
-                your board, so it will not break later.
+              <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
+                On Pinterest: right-click the pin → <b className="font-medium text-muted">Copy
+                image address</b>. We save the picture itself, so the tile will not break later
+                when Pinterest changes its links.
               </p>
             </div>
             <Button size="sm" type="submit" disabled={busy || !link.trim()}>
@@ -259,17 +271,32 @@ export default function Vision() {
         </Card>
       )}
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      {error && (
+        <p className="ss-rise rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
 
+      {/* ---------------- the board ---------------- */}
       <div
         ref={boardRef}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onPointerLeave={endDrag}
-        className="relative overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface"
+        className="ss-board-grid relative overflow-hidden rounded-[calc(var(--radius-card)+6px)] border border-line bg-base"
         style={{ height: BOARD_HEIGHT_PX }}
       >
+        {/* Soft violet wash in the corners. Decorative only. */}
+        <div
+          aria-hidden="true"
+          className="ss-drift pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-violet/20 blur-3xl"
+        />
+        <div
+          aria-hidden="true"
+          className="ss-drift-slow pointer-events-none absolute -bottom-28 -right-20 h-80 w-80 rounded-full bg-violet-soft/15 blur-3xl"
+        />
+
         {loading && (
           <p className="absolute inset-0 grid place-items-center text-sm text-muted">
             Loading your board…
@@ -278,12 +305,23 @@ export default function Vision() {
 
         {!loading && items.length === 0 && (
           <div className="absolute inset-0 grid place-items-center px-6 text-center">
-            <div className="flex flex-col items-center gap-2">
-              <p className="font-display text-lg text-ink">A blank wall</p>
-              <p className="max-w-sm text-sm text-muted">
-                Upload an image, or paste a link to a pin. Then drag things around until it feels
-                like yours.
+            <div className="ss-rise flex max-w-sm flex-col items-center gap-3">
+              <span className="grid h-14 w-14 place-items-center rounded-2xl border border-line bg-surface text-violet-soft shadow-lg">
+                <ImagePlus size={22} aria-hidden="true" />
+              </span>
+              <p className="font-display text-lg text-ink">A blank wall, for now</p>
+              <p className="text-sm leading-relaxed text-muted">
+                Upload a picture, or paste a link to a pin. Then drag things around until the
+                board looks like the life you are aiming at.
               </p>
+              <div className="mt-1 flex gap-2">
+                <Button size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
+                  <Upload size={14} /> Upload
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowLink(true)}>
+                  <Link2 size={14} /> Paste a link
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -292,6 +330,7 @@ export default function Vision() {
           <VisionTile
             key={item.id}
             item={item}
+            tilt={tiltFor(item.id)}
             selected={selected === item.id}
             dragging={dragging?.id === item.id}
             onPointerDown={(e) => startDrag(e, item)}
@@ -300,10 +339,12 @@ export default function Vision() {
         ))}
       </div>
 
-      <p className="text-xs text-faint">
-        {items.length} image{items.length === 1 ? "" : "s"} · click an image to reveal its delete
-        button · positions save when you let go
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-faint">
+        <span>
+          {items.length} image{items.length === 1 ? "" : "s"} · click a tile for its delete button
+        </span>
+        <span>Positions save when you let go</span>
+      </div>
     </div>
   )
 }
@@ -311,12 +352,14 @@ export default function Vision() {
 /** One draggable image, with its own lazily-fetched blob URL. */
 function VisionTile({
   item,
+  tilt,
   selected,
   dragging,
   onPointerDown,
   onDelete,
 }: {
   item: VisionItem
+  tilt: number
   selected: boolean
   dragging: boolean
   onPointerDown: (event: React.PointerEvent) => void
@@ -348,16 +391,18 @@ function VisionTile({
       style={{
         left: `${item.x}%`,
         top: `${item.y}%`,
-        width: IMAGE_SIZE_PX,
-        // touch-action: none is what stops the page scrolling instead of the
-        // image moving on a phone or trackpad.
+        width: TILE_WIDTH_PX,
+        // The resting tilt is a transform, and a dragged tile straightens up:
+        // "picked it off the wall", then it settles back.
+        transform: dragging ? "scale(1.04) rotate(0deg)" : `rotate(${tilt}deg)`,
         touchAction: "none",
         cursor: dragging ? "grabbing" : "grab",
       }}
       className={cx(
-        "absolute select-none rounded-xl bg-elevated shadow-lg transition-shadow",
-        dragging ? "z-30 shadow-xl" : "z-10 hover:shadow-xl",
-        selected && "ring-2 ring-violet-soft/70",
+        "ss-pop absolute select-none rounded-2xl border border-line/60 bg-elevated p-1.5 shadow-xl",
+        "transition-[transform,box-shadow] duration-200 will-change-transform",
+        dragging ? "z-40 shadow-2xl ring-2 ring-violet-soft/60" : "z-10 hover:shadow-2xl",
+        selected && !dragging && "ring-2 ring-violet-soft/70",
       )}
     >
       {src ? (
@@ -366,19 +411,19 @@ function VisionTile({
           alt={item.caption ?? "Vision board image"}
           draggable={false}
           className="pointer-events-none w-full rounded-xl object-cover"
-          style={{ height: IMAGE_SIZE_PX }}
+          style={{ height: TILE_WIDTH_PX }}
         />
       ) : (
         <div
-          className="grid w-full place-items-center rounded-xl text-xs text-faint"
-          style={{ height: IMAGE_SIZE_PX }}
+          className="grid w-full place-items-center rounded-xl bg-surface text-xs text-faint"
+          style={{ height: TILE_WIDTH_PX }}
         >
           loading…
         </div>
       )}
 
       {item.caption && (
-        <p className="absolute inset-x-0 bottom-0 truncate rounded-b-xl bg-base/70 px-2 py-1 text-[11px] text-ink">
+        <p className="absolute inset-x-1.5 bottom-1.5 truncate rounded-b-xl bg-base/75 px-2 py-1 text-[11px] text-ink backdrop-blur-sm">
           {item.caption}
         </p>
       )}
@@ -389,7 +434,7 @@ function VisionTile({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onDelete}
           aria-label="Remove from board"
-          className="absolute -right-2 -top-2 grid h-7 w-7 place-items-center rounded-full border border-line bg-base text-faint hover:border-danger/50 hover:text-danger"
+          className="absolute -right-2.5 -top-2.5 grid h-7 w-7 place-items-center rounded-full border border-line bg-base text-faint shadow-lg transition-colors hover:border-danger/50 hover:text-danger"
         >
           <Trash2 size={13} />
         </button>
