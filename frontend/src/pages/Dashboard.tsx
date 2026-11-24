@@ -32,7 +32,7 @@ function formatReminder(iso: string) {
 
 export default function Dashboard() {
   const { user } = useAuth()
-  const { domains, addDomain, removeDomain } = useDomains()
+  const { domains, addDomain, removeDomain, setRepeatsDaily } = useDomains()
 
   // --- page state ---
   const [tasks, setTasks] = useState<Task[]>([])
@@ -77,6 +77,7 @@ export default function Dashboard() {
   // New-domain form.
   const [addingDomain, setAddingDomain] = useState(false)
   const [newDomainName, setNewDomainName] = useState("")
+  const [newDomainRepeats, setNewDomainRepeats] = useState(false)
 
   // New-task form.
   const [addingTask, setAddingTask] = useState(false)
@@ -147,8 +148,9 @@ export default function Dashboard() {
 
   async function commitDomain() {
     if (!newDomainName.trim()) return
-    await addDomain(newDomainName)
+    await addDomain(newDomainName, newDomainRepeats)
     setNewDomainName("")
+    setNewDomainRepeats(false)
     setAddingDomain(false)
   }
 
@@ -342,6 +344,15 @@ export default function Dashboard() {
               onChange={(e) => setNewDomainName(e.target.value)}
               autoFocus
             />
+            <label className="flex items-center gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={newDomainRepeats}
+                onChange={(e) => setNewDomainRepeats(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-line bg-elevated accent-violet"
+              />
+              Repeats daily — a routine whose tasks untick every morning
+            </label>
             <div className="flex gap-2">
               <Button size="sm" onClick={commitDomain} disabled={!newDomainName.trim()}>
                 Add domain
@@ -406,11 +417,44 @@ export default function Dashboard() {
                 </button>
 
                 <div className="flex items-center justify-between gap-3 pr-6">
-                  <span className="font-display text-[15px] font-medium text-ink">{d.name}</span>
+                  <span className="flex items-center gap-1.5 font-display text-[15px] font-medium text-ink">
+                    {d.name}
+                    {d.repeatsDaily && (
+                      // A small marker, not a loud one: routines are the default
+                      // shape of the app, not an exception to flag.
+                      <span
+                        title="Repeats daily: tasks untick every morning"
+                        className="rounded-full border border-violet-soft/40 px-1.5 py-0.5 text-[10px] font-normal text-violet-soft"
+                      >
+                        daily
+                      </span>
+                    )}
+                  </span>
                   <span className="shrink-0 text-xs tabular-nums text-faint">
                     {Math.floor(d.minutesThisWeek / 60)}h {d.minutesThisWeek % 60}m
                   </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void setRepeatsDaily(d.id, !d.repeatsDaily)
+                  }}
+                  aria-label={
+                    d.repeatsDaily
+                      ? `Stop repeating ${d.name} daily`
+                      : `Repeat ${d.name} daily`
+                  }
+                  title={d.repeatsDaily ? "Stop repeating daily" : "Repeat daily"}
+                  className={cx(
+                    "mt-2 text-[11px] transition-opacity",
+                    d.repeatsDaily
+                      ? "text-violet-soft"
+                      : "text-faint opacity-0 hover:text-ink group-hover:opacity-100 focus:opacity-100",
+                  )}
+                >
+                  {d.repeatsDaily ? "Repeats daily · turn off" : "Make this a daily routine"}
+                </button>
                 <StackBar
                   progress={share}
                   colour={d.colour === "mint" ? "bg-mint" : d.colour === "violet-soft" ? "bg-violet-soft" : "bg-violet"}

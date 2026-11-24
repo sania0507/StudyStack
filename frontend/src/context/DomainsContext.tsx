@@ -15,7 +15,8 @@ import { useAuth } from "@/context/AuthContext"
 type DomainsValue = {
   domains: Domain[]
   isLoading: boolean
-  addDomain: (name: string) => Promise<void>
+  addDomain: (name: string, repeatsDaily?: boolean) => Promise<void>
+  setRepeatsDaily: (id: string, repeatsDaily: boolean) => Promise<void>
   renameDomain: (id: string, name: string) => Promise<void>
   removeDomain: (id: string) => Promise<void>
   reloadDomains: () => Promise<void>
@@ -51,14 +52,20 @@ export function DomainsProvider({ children }: { children: ReactNode }) {
     loadDomains()
   }, [loadDomains])
 
-  async function addDomain(name: string): Promise<void> {
+  async function addDomain(name: string, repeatsDaily = false): Promise<void> {
     const clean = name.trim()
 
     if (!clean) return
 
-    const newDomain = await createDomain(clean)
+    const newDomain = await createDomain(clean, repeatsDaily)
 
     setDomains((prev) => [...prev, newDomain])
+  }
+
+  async function setRepeatsDaily(id: string, repeatsDaily: boolean): Promise<void> {
+    const updated = await updateDomain(id, { repeatsDaily })
+
+    setDomains((prev) => prev.map((d) => (d.id === id ? updated : d)))
   }
 
   async function renameDomain(id: string, name: string): Promise<void> {
@@ -84,6 +91,7 @@ export function DomainsProvider({ children }: { children: ReactNode }) {
       domains,
       isLoading,
       addDomain,
+      setRepeatsDaily,
       renameDomain,
       removeDomain,
       reloadDomains: loadDomains,

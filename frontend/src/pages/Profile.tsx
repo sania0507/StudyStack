@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Camera, Trash2 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import * as api from "@/api/client"
@@ -39,6 +39,8 @@ export default function Profile() {
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [avatarMsg, setAvatarMsg] = useState<string | null>(null)
 
   async function saveDetails(e: React.FormEvent) {
     e.preventDefault()
@@ -72,12 +74,37 @@ export default function Profile() {
     }
   }
 
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    // URL.createObjectURL gives us a local preview URL without any upload.
-    // A real app would POST the file and store the returned URL instead.
-    patchUser({ avatarUrl: URL.createObjectURL(file) })
+
+    setAvatarBusy(true)
+
+    try {
+      // The file goes to the server; what comes back is the stored user, so a
+      // reload re-fetches the same picture instead of losing it.
+      const updated = await api.uploadAvatar(file)
+      patchUser({ avatarUrl: updated.avatarUrl })
+    } catch (err) {
+      setAvatarMsg(err instanceof Error ? err.message : "Could not upload that photo.")
+    } finally {
+      setAvatarBusy(false)
+      // Clear the input so picking the same file twice still fires onChange.
+      e.target.value = ""
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarBusy(true)
+
+    try {
+      const updated = await api.deleteAvatar()
+      patchUser({ avatarUrl: updated.avatarUrl })
+    } catch (err) {
+      setAvatarMsg(err instanceof Error ? err.message : "Could not remove the photo.")
+    } finally {
+      setAvatarBusy(false)
+    }
   }
 
   return (
@@ -89,7 +116,11 @@ export default function Profile() {
 
       {/* ---------------- avatar ---------------- */}
       <Card className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
-        <Avatar name={user?.name ?? "?"} url={user?.avatarUrl} size={72} />
+        {user?.avatarUrl ? (
+          <UserAvatar key={user.avatarUrl} name={user.name} size={72} />
+        ) : (
+          <Avatar name={user?.name ?? "?"} size={72} />
+        )}
 
         <div className="flex flex-col gap-1">
           <span className="font-display text-lg font-semibold text-ink">{user?.name}</span>
@@ -100,16 +131,29 @@ export default function Profile() {
         <div className="flex gap-2 sm:ml-auto">
           {/* The real input is hidden but fully functional. */}
           <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-            <Camera size={14} /> Change photo
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileRef.current?.click()}
+            disabled={avatarBusy}
+          >
+            <Camera size={14} /> {avatarBusy ? "Uploading…" : "Change photo"}
           </Button>
           {user?.avatarUrl && (
-            <Button variant="ghost" size="sm" onClick={() => patchUser({ avatarUrl: "" })} aria-label="Remove photo">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={removeAvatar}
+              disabled={avatarBusy}
+              aria-label="Remove photo"
+            >
               <Trash2 size={14} />
             </Button>
           )}
         </div>
       </Card>
+
+      {avatarMsg && <p className="text-sm text-danger">{avatarMsg}</p>}
 
       {/* ---------------- details + password ---------------- */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -174,5 +218,42 @@ export default function Profile() {
         </Button>
       </Card>
     </div>
+  )
+}
+
+
+/** Fetches the avatar with the bearer token, since <img> cannot send headers. */
+function UserAvatar({ name, size }: { name: string; size: number }) {
+  const [src, setSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    let revoked = false
+    let objectUrl: string | null = null
+
+    api
+      .fetchAvatarObjectUrl()
+      .then((url) => {
+        objectUrl = url
+        if (url && !revoked) setSrc(url)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      revoked = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [])
+
+  if (!src) return <Avatar name={name} size={size} />
+
+  return (
+    <img
+      src={src}
+      alt={`${name}'s profile picture`}
+      width={size}
+      height={size}
+      className="rounded-full object-cover"
+      style={{ width: size, height: size }}
+    />
   )
 }
