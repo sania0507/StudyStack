@@ -13,8 +13,9 @@ from services.analytics import (
     domain_completion,
     heatmap,
     hours_per_week,
-    minutes_by_day,
+    seconds_by_day,
     overdue_task_count,
+    seconds_per_task,
     tasks_completed_by_day,
     weekday_minutes,
 )
@@ -39,8 +40,11 @@ def analytics_summary(
         select(StudySession).where(StudySession.user_id == user_id)
     ).all()
 
-    total_minutes = sum(session.minutes for session in sessions)
-    days_with_sessions = len(minutes_by_day(sessions))
+    total_seconds = sum(session.duration_seconds for session in sessions)
+    # The API keeps talking in minutes because that is the chart's unit; the
+    # storage is seconds.
+    total_minutes = round(total_seconds / 60)
+    days_with_sessions = len(seconds_by_day(sessions))
 
     # Average minutes per day that actually has study activity.
     sessions_per_day = (
@@ -58,6 +62,10 @@ def analytics_summary(
         days_with_sessions=days_with_sessions,
         sessions_per_day=sessions_per_day,
         weekday_minutes=weekday_minutes(sessions),
+        task_totals=[
+            {"task_id": task_id, "seconds": seconds}
+            for task_id, seconds in seconds_per_task(sessions).items()
+        ],
         domain_completion=domain_completion(db, user_id),
         heatmap=heatmap(
             sessions,

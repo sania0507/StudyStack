@@ -26,6 +26,9 @@ type TimerValue = {
   isRunning: boolean
   domainId: string
   completedCount: number
+  /** Optional task the finished block is recorded against. */
+  taskId: string
+  setTaskId: (id: string) => void
   /** Message for a finished block that could not be saved, or null. */
   saveError: string | null
   isRetrying: boolean
@@ -46,12 +49,19 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const [secondsLeft, setSecondsLeft] = useState(60 * 60)
   const [isRunning, setIsRunning] = useState(false)
   const [domainId, setDomainId] = useState("")
+  // Empty means "record against the domain only", which stays the default so
+  // starting a timer never requires choosing a task first.
+  const [taskId, setTaskId] = useState("")
   const [completedCount, setCompletedCount] = useState(0)
 
   // A finished block that could not be saved used to be a console.error and
   // nothing else, so a backend outage silently ate the user's study time.
   // Keeping the failed block here lets the panel show it and retry it.
-  const [failedSave, setFailedSave] = useState<{ domainId: string; minutes: number } | null>(null)
+  const [failedSave, setFailedSave] = useState<{
+    domainId: string
+    durationSeconds: number
+    taskId?: string
+  } | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isRetrying, setIsRetrying] = useState(false)
 
@@ -64,6 +74,9 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     if (!domainId && domains.length > 0) {
       setDomainId(domains[0].id)
     }
+
+    // A task belongs to a domain, so switching domain invalidates it.
+    setTaskId("")
 
     // If the selected domain was deleted, fall back to the first one.
     if (domainId && !domains.some((domain) => domain.id === domainId)) {
@@ -98,19 +111,26 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       setIsRunning(false)
       beep()
 
-      // Persist the finished block so analytics has real data.
-      // The timer never counts less than a minute.
-      const minutes = Math.max(1, Math.round(totalSeconds / 60))
+      // Persist the finished block in seconds.
+      //
+      // The old code rounded to whole minutes, which turned a 40-second block
+      // into one minute and a 5-second one into nothing. totalSeconds is what
+      // the timer actually counted, so it is the honest number to store.
+      const durationSeconds = Math.max(1, Math.round(totalSeconds))
 
       if (domainId) {
-        saveBlock({ domainId, minutes })
+        saveBlock({ domainId, durationSeconds, taskId: taskId || undefined })
       }
     }
   }, [secondsLeft, isRunning, totalSeconds, domainId])
 
   // Saves one finished block. On failure the block is kept in state instead of
   // being dropped, so the panel can offer a retry once the backend is reachable.
-  async function saveBlock(block: { domainId: string; minutes: number }) {
+  async function saveBlock(block: {
+    domainId: string
+    durationSeconds: number
+    taskId?: string
+  }) {
     try {
       await createSession(block)
       setCompletedCount((c) => c + 1)
@@ -191,6 +211,8 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       totalSeconds,
       isRunning,
       domainId,
+      taskId,
+      setTaskId,
       completedCount,
       saveError,
       isRetrying,
@@ -211,7 +233,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
         setSecondsLeft(totalSeconds)
       },
     }),
-    [secondsLeft, totalSeconds, isRunning, domainId, completedCount, saveError, isRetrying],
+    [secondsLeft, totalSeconds, isRunning, domainId, taskId, completedCount, saveError, isRetrying],
   )
 
   return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>

@@ -6,7 +6,7 @@ def add_session(client, domain_id, minutes):
     """Sessions are created through the API, which stamps finished_at itself."""
     response = client.post(
         "/sessions",
-        json={"domain_id": domain_id, "minutes": minutes},
+        json={"domain_id": domain_id, "duration_seconds": minutes * 60},
     )
     assert response.status_code == 200
     return response.json()
@@ -146,3 +146,20 @@ def test_heatmap_never_reports_a_future_day(client):
 
     assert [day["day"] for day in heatmap] == sorted(day["day"] for day in heatmap)
     assert heatmap[-1]["day"] == __import__("datetime").date.today().isoformat()
+
+
+def test_task_totals_attribute_time_to_the_right_task(client, domain_id):
+    task = client.post(
+        "/tasks", json={"domain_id": domain_id, "title": "Essay"}
+    ).json()
+
+    client.post(
+        "/sessions",
+        json={"domain_id": domain_id, "task_id": task["id"], "duration_seconds": 3600},
+    )
+    # A domain-only session must not be attributed to any task.
+    client.post("/sessions", json={"domain_id": domain_id, "duration_seconds": 600})
+
+    totals = client.get("/analytics/summary").json()["task_totals"]
+
+    assert totals == [{"task_id": task["id"], "seconds": 3600}]

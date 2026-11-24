@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user_id
 from database import get_db
-from models import Domain, StudySession
+from models import Domain, StudySession, Task
 from schemas import StudySessionCreate, StudySessionOut
 
 
@@ -30,11 +30,24 @@ def create_study_session(
     if existing_domain is None:
         raise HTTPException(status_code=404, detail="Domain not found")
 
+    # If a task was named, prove it is the caller's and lives in that domain.
+    if session.task_id is not None:
+        owned_task = db.scalar(
+            select(Task).where(
+                Task.id == session.task_id,
+                Task.domain_id == session.domain_id,
+            )
+        )
+
+        if owned_task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
     new_session = StudySession(
         id=uuid.uuid4(),
         user_id=user_id,
         domain_id=session.domain_id,
-        minutes=session.minutes,
+        task_id=session.task_id,
+        duration_seconds=session.duration_seconds,
         finished_at=datetime.now(),
     )
 

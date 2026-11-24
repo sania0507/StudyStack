@@ -17,6 +17,13 @@ class DomainProgress(BaseModel):
     completion_percent: float
 
 
+class TaskTimeTotal(BaseModel):
+    """Focus time recorded against one task."""
+
+    task_id: uuid.UUID
+    seconds: int
+
+
 class HeatmapDay(BaseModel):
     day: date
     minutes: int
@@ -37,5 +44,7 @@ class AnalyticsSummary(BaseModel):
     days_with_sessions: int
     sessions_per_day: float
     weekday_minutes: list[WeekdayMinutes]
+    # Per-task focus time, so a task row can show "2h 14m recorded".
+    task_totals: list[TaskTimeTotal]
     domain_completion: list[DomainProgress]
     heatmap: list[HeatmapDay]

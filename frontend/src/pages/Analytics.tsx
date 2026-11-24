@@ -16,6 +16,17 @@ import type { Domain, Session } from "@/api/types"
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+/* A recorded block, from seconds. Short blocks read as minutes, not "0h 0m". */
+function formatSeconds(total: number) {
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.round((total % 3600) / 60)
+
+  if (hours === 0) return `${Math.max(1, minutes)}m`
+  if (minutes === 0) return `${hours}h`
+
+  return `${hours}h ${minutes}m`
+}
+
 function formatMinutes(total: number) {
   const h = Math.floor(total / 60)
   const m = total % 60
@@ -44,20 +55,24 @@ export default function Analytics() {
   const [summary, setSummary] = useState<api.AnalyticsSummary | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [domains, setDomains] = useState<Domain[]>([])
+  const [taskNames, setTaskNames] = useState<Map<string, string>>(new Map())
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
       try {
-        const [analytics, recent, domainList] = await Promise.all([
+        const [analytics, recent, domainList, taskList] = await Promise.all([
           api.getAnalytics(),
           api.getSessions(),
           api.getDomains(),
+          // Only for names: the feed says "on Chapter 3" rather than an id.
+          api.getTasks().catch(() => []),
         ])
 
         setSummary(analytics)
         setSessions(recent)
         setDomains(domainList)
+        setTaskNames(new Map(taskList.map((task) => [task.id, task.title])))
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load analytics.")
       }
@@ -199,8 +214,20 @@ export default function Analytics() {
                   <Avatar name={user?.name ?? "?"} hasAvatar={Boolean(user?.avatarUrl)} size={30} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-ink">
-                      You tracked {formatMinutes(s.minutes)} in{" "}
-                      <span className="text-violet-soft">{domain?.name ?? "a deleted domain"}</span>
+                      You tracked {formatSeconds(s.durationSeconds)}
+                      {s.taskId && taskNames.has(s.taskId) ? (
+                        <>
+                          {" on "}
+                          <span className="text-violet-soft">{taskNames.get(s.taskId)}</span>
+                        </>
+                      ) : (
+                        <>
+                          {" in "}
+                          <span className="text-violet-soft">
+                            {domain?.name ?? "a deleted domain"}
+                          </span>
+                        </>
+                      )}
                     </p>
                     <p className="mt-0.5 text-xs text-faint">
                       {formatDay(s.finishedAt.slice(0, 10))} · {timeAgo(s.finishedAt)}

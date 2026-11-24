@@ -1,7 +1,9 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Pause, Play, RotateCcw } from "lucide-react"
 import { useTimer, formatClock } from "@/context/TimerContext"
 import { useDomains } from "@/context/DomainsContext"
+import * as api from "@/api/client"
+import type { Task } from "@/api/types"
 import { Button, Card, cx } from "@/components/ui"
 
 /*
@@ -29,6 +31,8 @@ export default function TimerPanel() {
     isRunning,
     domainId,
     setDomainId,
+    taskId,
+    setTaskId,
     setPreset,
     setCustomSeconds,
     start,
@@ -41,6 +45,25 @@ export default function TimerPanel() {
     dismissSaveError,
   } = useTimer()
   const { domains } = useDomains()
+
+  // The timer needs the task list only to offer names. A failure here must
+  // never block timing, so it degrades to "Just the domain".
+  const [tasks, setTasks] = useState<Task[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+
+    api
+      .getTasks()
+      .then((list) => {
+        if (!cancelled) setTasks(list)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Custom-time editor state.
   const [editing, setEditing] = useState(false)
@@ -154,6 +177,28 @@ export default function TimerPanel() {
               {d.name}
             </option>
           ))}
+        </select>
+      </div>
+
+      {/* ---- optional: which task am I on? ---- */}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="timer-task" className="text-xs font-medium text-faint">
+          Task <span className="text-faint/70">(optional)</span>
+        </label>
+        <select
+          id="timer-task"
+          value={taskId}
+          onChange={(e) => setTaskId(e.target.value)}
+          className="h-10 rounded-xl border border-line bg-elevated px-3 text-sm text-ink focus:border-violet-soft/60 focus:outline-none"
+        >
+          <option value="">Just the domain</option>
+          {tasks
+            .filter((t) => !t.completed && t.domainId === domainId)
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
         </select>
       </div>
 

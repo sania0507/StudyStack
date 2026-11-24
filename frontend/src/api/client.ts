@@ -505,38 +505,50 @@ export async function createReminder(
 
 export async function createSession(input: {
   domainId: string
-  minutes: number
+  /** Optional: attribute the block to one task so per-task time exists. */
+  taskId?: string
+  durationSeconds: number
 }): Promise<Session> {
   const session = await request<{
     id: string
     domain_id: string
-    minutes: number
+    task_id: string | null
+    duration_seconds: number
     finished_at: string
   }>(MAIN_URL, "/sessions", {
     method: "POST",
     body: JSON.stringify({
       domain_id: input.domainId,
-      minutes: input.minutes,
+      task_id: input.taskId ?? null,
+      duration_seconds: input.durationSeconds,
     }),
   })
 
   return {
     id: session.id,
     domainId: session.domain_id,
-    minutes: session.minutes,
+    taskId: session.task_id,
+    durationSeconds: session.duration_seconds,
     finishedAt: session.finished_at,
   }
 }
 
 export async function getSessions(): Promise<Session[]> {
   const sessions = await request<
-    { id: string; domain_id: string; minutes: number; finished_at: string }[]
+    {
+      id: string
+      domain_id: string
+      task_id: string | null
+      duration_seconds: number
+      finished_at: string
+    }[]
   >(MAIN_URL, "/sessions")
 
   return sessions.map((session) => ({
     id: session.id,
     domainId: session.domain_id,
-    minutes: session.minutes,
+    taskId: session.task_id,
+    durationSeconds: session.duration_seconds,
     finishedAt: session.finished_at,
   }))
 }
@@ -560,6 +572,8 @@ export type AnalyticsSummary = {
     completionPercent: number
   }[]
   heatmap: { date: string; minutes: number; tasksCompleted: number }[]
+  /** Seconds recorded per task, for "2h 14m on this" on a task row. */
+  taskTotals: { taskId: string; seconds: number }[]
 }
 
 export async function getAnalytics(): Promise<AnalyticsSummary> {
@@ -580,6 +594,7 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
       completion_percent: number
     }[]
     heatmap: { day: string; minutes: number; tasks_completed: number }[]
+    task_totals: { task_id: string; seconds: number }[]
   }>(ANALYTICS_URL, "/analytics/summary")
 
   return {
@@ -605,6 +620,10 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
       date: entry.day,
       minutes: entry.minutes,
       tasksCompleted: entry.tasks_completed,
+    })),
+    taskTotals: summary.task_totals.map((entry) => ({
+      taskId: entry.task_id,
+      seconds: entry.seconds,
     })),
   }
 }

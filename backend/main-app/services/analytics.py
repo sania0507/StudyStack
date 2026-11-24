@@ -1,3 +1,4 @@
+import math
 from datetime import date, datetime, time, timedelta
 import uuid
 
@@ -22,15 +23,15 @@ WEEKDAY_NAMES = [
 ]
 
 
-# Turns raw session rows into {date: minutes}.
-def minutes_by_day(
+# Turns raw session rows into {date: seconds}.
+def seconds_by_day(
     sessions: list[StudySession],
 ) -> dict[date, int]:
     totals: dict[date, int] = {}
 
     for session in sessions:
         day = session.finished_at.date()
-        totals[day] = totals.get(day, 0) + session.minutes
+        totals[day] = totals.get(day, 0) + session.duration_seconds
 
     return totals
 
@@ -42,7 +43,7 @@ def current_streak(
 ) -> int:
     today = today or date.today()
 
-    totals = minutes_by_day(sessions)
+    totals = seconds_by_day(sessions)
 
     if not totals:
         return 0
@@ -78,14 +79,29 @@ def hours_per_week(
 ) -> float:
     start, end = week_bounds(today)
 
-    total_minutes = sum(
-        session.minutes
+    total_seconds = sum(
+        session.duration_seconds
         for session in sessions
         if start <= session.finished_at < end
     )
 
     # Rounding keeps the JSON readable instead of 1.6666666666.
-    return round(total_minutes / 60, 2)
+    return round(total_seconds / 3600, 2)
+
+
+def seconds_per_task(
+    sessions: list[StudySession],
+) -> dict[uuid.UUID, int]:
+    """Total focus time per task, for the "how long did this take" view."""
+    totals: dict[uuid.UUID, int] = {}
+
+    for session in sessions:
+        if session.task_id is None:
+            continue
+
+        totals[session.task_id] = totals.get(session.task_id, 0) + session.duration_seconds
+
+    return totals
 
 
 def overdue_task_count(db: Session, user_id: uuid.UUID) -> int:
@@ -107,14 +123,15 @@ def overdue_task_count(db: Session, user_id: uuid.UUID) -> int:
 
 
 def weekday_minutes(sessions: list[StudySession]) -> list[dict]:
+    """Focus time per weekday, in whole minutes (the chart's unit)."""
     totals = {name: 0 for name in WEEKDAY_NAMES}
 
     for session in sessions:
         name = WEEKDAY_NAMES[session.finished_at.weekday()]
-        totals[name] += session.minutes
+        totals[name] += session.duration_seconds
 
     return [
-        {"weekday": name, "minutes": totals[name]}
+        {"weekday": name, "minutes": round(totals[name] / 60)}
         for name in WEEKDAY_NAMES
     ]
 
@@ -194,7 +211,7 @@ def heatmap(
     days: int = 30,
     completions: dict[date, int] | None = None,
 ) -> list[dict]:
-    totals = minutes_by_day(sessions)
+    totals = seconds_by_day(sessions)
     completions = completions or {}
     today = date.today()
 
@@ -204,7 +221,9 @@ def heatmap(
         result.append(
             {
                 "day": day,
-                "minutes": totals.get(day, 0),
+                # The heatmap reads minutes for its levels; rounding up means a
+                # 40-second block still counts as a minute rather than zero.
+                "minutes": math.ceil(totals.get(day, 0) / 60),
                 "tasks_completed": completions.get(day, 0),
             }
         )

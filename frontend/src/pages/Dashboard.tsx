@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Bell, CalendarDays, Check, ChevronDown, Plus, X } from "lucide-react"
+import { Bell, CalendarDays, Check, ChevronDown, Plus, Timer, X } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { useDomains } from "@/context/DomainsContext"
 import * as api from "@/api/client"
@@ -28,6 +28,17 @@ function formatDue(due: string) {
 
 function formatReminder(iso: string) {
   return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+}
+
+/** 8100 -> "2h 15m", 40 -> "1m". Rounds up: a minute of work is a minute. */
+function formatDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.round((totalSeconds % 3600) / 60)
+
+  if (hours === 0) return `${Math.max(1, minutes)}m`
+  if (minutes === 0) return `${hours}h`
+
+  return `${hours}h ${minutes}m`
 }
 
 export default function Dashboard() {
@@ -259,6 +270,12 @@ export default function Dashboard() {
       )
     }
   }
+
+  // Per-task focus time, from the analytics summary. Keyed by task id so a
+  // row can render its own total without another request.
+  const secondsByTask = new Map(
+    (analytics?.taskTotals ?? []).map((entry) => [entry.taskId, entry.seconds]),
+  )
 
   // Fall back to zeroes so the page renders before analytics arrives.
   const totalMinutesThisWeek = analytics ? Math.round(analytics.hoursPerWeek * 60) : 0
@@ -592,6 +609,18 @@ export default function Dashboard() {
                       {t.title}
                     </span>
                   </label>
+
+                  {/* Time actually spent, recorded against this task. Only
+                      shown when there is something to show. */}
+                  {(secondsByTask.get(t.id) ?? 0) > 0 && (
+                    <span
+                      title="Focus time recorded against this task"
+                      className="hidden shrink-0 items-center gap-1 rounded-full border border-violet-soft/40 px-2 py-0.5 text-xs text-violet-soft sm:flex"
+                    >
+                      <Timer size={12} aria-hidden="true" />
+                      {formatDuration(secondsByTask.get(t.id) ?? 0)}
+                    </span>
+                  )}
 
                   {t.dueDate && (
                     <span className="hidden shrink-0 items-center gap-1 rounded-full border border-line bg-elevated px-2 py-0.5 text-xs text-faint sm:flex">

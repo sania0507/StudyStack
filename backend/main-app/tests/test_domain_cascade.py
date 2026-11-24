@@ -20,7 +20,7 @@ def test_deleting_a_domain_removes_nested_children(client, domain_id):
         "/reminders",
         json={"task_id": task["id"], "remind_at": "2030-01-01T09:00:00"},
     )
-    client.post("/sessions", json={"domain_id": domain_id, "minutes": 30})
+    client.post("/sessions", json={"domain_id": domain_id, "duration_seconds": 30 * 60})
 
     assert client.delete(f"/domains/{domain_id}").status_code == 200
 

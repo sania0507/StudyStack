@@ -48,7 +48,9 @@ export type Task = {
 export type Session = {
   id: string
   domainId: string
-  minutes: number
+  /** Null for a block timed against the domain only. */
+  taskId: string | null
+  durationSeconds: number
   finishedAt: string // ISO string
 }
 
