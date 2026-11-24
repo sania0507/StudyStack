@@ -1,4 +1,4 @@
-import { Outlet } from "react-router-dom"
+import { Outlet, useLocation } from "react-router-dom"
 import Navbar from "@/components/Navbar"
 import TimerPanel from "@/components/TimerPanel"
 
@@ -22,6 +22,13 @@ import TimerPanel from "@/components/TimerPanel"
       </Route>
 */
 export default function AppLayout() {
+  // Pages that are not about doing the work do not need a clock beside them.
+  // The provider stays mounted (it lives in App.tsx, above the router), so a
+  // running timer keeps running and is still there when you come back — only
+  // the panel is hidden.
+  const { pathname } = useLocation()
+  const showTimer = !["/vision", "/notes"].includes(pathname)
+
   return (
     <div className="min-h-dvh bg-base">
       <Navbar />
@@ -32,9 +39,11 @@ export default function AppLayout() {
           The sidebar is `sticky` so the timer follows you as you scroll.
         */}
         <div className="flex flex-col gap-6 lg:flex-row">
-          <aside className="w-full shrink-0 lg:sticky lg:top-[5.5rem] lg:w-[268px] lg:self-start">
-            <TimerPanel />
-          </aside>
+          {showTimer && (
+            <aside className="w-full shrink-0 lg:sticky lg:top-[5.5rem] lg:w-[268px] lg:self-start">
+              <TimerPanel />
+            </aside>
+          )}
 
           <main className="min-w-0 flex-1">
             <Outlet />

@@ -7,3 +7,4 @@ from .reminder import Reminder
 from .study_session import StudySession
 from .task_completion import TaskCompletion
 from .vision_item import VisionItem
+from .note import Note, NoteFolder

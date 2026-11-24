@@ -62,3 +62,19 @@ export type VisionItem = {
   /** Percentage of the board width, 6..60. Height follows the image ratio. */
   width: number
 }
+
+export type NoteFolder = {
+  id: string
+  name: string
+  noteCount: number
+}
+
+export type Note = {
+  id: string
+  folderId: string
+  title: string
+  body: string
+  pinned: boolean
+  createdAt: string
+  updatedAt: string
+}

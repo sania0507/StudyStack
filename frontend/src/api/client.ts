@@ -13,7 +13,7 @@
                           /sessions, /analytics/summary
 */
 
-import type { Domain, Session, Subtask, Task, User, VisionItem } from "@/api/types"
+import type { Domain, Note, NoteFolder, Session, Subtask, Task, User, VisionItem } from "@/api/types"
 
 // An env var that exists but is EMPTY is not caught by ??, which would leave
 // the base URL as "" and send requests to the frontend's own origin.
@@ -783,4 +783,130 @@ export async function fetchVisionImage(id: string): Promise<string | null> {
   if (!response.ok) return null
 
   return URL.createObjectURL(await response.blob())
+}
+
+/* ---------------- notes ---------------- */
+
+type BackendFolder = {
+  id: string
+  name: string
+  created_at: string
+  note_count: number
+}
+
+type BackendNote = {
+  id: string
+  folder_id: string
+  title: string
+  body: string
+  pinned: boolean
+  created_at: string
+  updated_at: string
+}
+
+function toFolder(folder: BackendFolder): NoteFolder {
+  return { id: folder.id, name: folder.name, noteCount: folder.note_count }
+}
+
+function toNote(note: BackendNote): Note {
+  return {
+    id: note.id,
+    folderId: note.folder_id,
+    title: note.title,
+    body: note.body,
+    pinned: note.pinned,
+    createdAt: note.created_at,
+    updatedAt: note.updated_at,
+  }
+}
+
+export async function getFolders(): Promise<NoteFolder[]> {
+  const folders = await request<BackendFolder[]>(MAIN_URL, "/note-folders")
+
+  return folders.map(toFolder)
+}
+
+export async function createFolder(name: string): Promise<NoteFolder> {
+  const folder = await request<BackendFolder>(MAIN_URL, "/note-folders", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  })
+
+  return toFolder(folder)
+}
+
+export async function renameFolder(id: string, name: string): Promise<NoteFolder> {
+  const folder = await request<BackendFolder>(MAIN_URL, `/note-folders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  })
+
+  return toFolder(folder)
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+  await request<void>(MAIN_URL, `/note-folders/${id}`, { method: "DELETE" })
+}
+
+export async function getNotes(params?: {
+  folderId?: string
+  search?: string
+}): Promise<Note[]> {
+  const query = new URLSearchParams()
+
+  if (params?.folderId) query.set("folder_id", params.folderId)
+  if (params?.search) query.set("search", params.search)
+
+  const suffix = query.toString() ? `?${query}` : ""
+
+  const notes = await request<BackendNote[]>(MAIN_URL, `/notes${suffix}`)
+
+  return notes.map(toNote)
+}
+
+export async function createNote(input: {
+  folderId: string
+  title: string
+  body: string
+  pinned?: boolean
+}): Promise<Note> {
+  const note = await request<BackendNote>(MAIN_URL, "/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      folder_id: input.folderId,
+      title: input.title,
+      body: input.body,
+      pinned: input.pinned ?? false,
+    }),
+  })
+
+  return toNote(note)
+}
+
+export async function updateNote(
+  id: string,
+  patch: {
+    folderId?: string
+    title?: string
+    body?: string
+    pinned?: boolean
+  },
+): Promise<Note> {
+  const body: Record<string, unknown> = {}
+
+  if (patch.folderId !== undefined) body.folder_id = patch.folderId
+  if (patch.title !== undefined) body.title = patch.title
+  if (patch.body !== undefined) body.body = patch.body
+  if (patch.pinned !== undefined) body.pinned = patch.pinned
+
+  const note = await request<BackendNote>(MAIN_URL, `/notes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+
+  return toNote(note)
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  await request<void>(MAIN_URL, `/notes/${id}`, { method: "DELETE" })
 }

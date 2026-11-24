@@ -13,6 +13,7 @@ import Dashboard from "@/pages/Dashboard"
 import Analytics from "@/pages/Analytics"
 import Profile from "@/pages/Profile"
 import Vision from "@/pages/Vision"
+import Notes from "@/pages/Notes"
 
 /*
   ============================================================
@@ -60,6 +61,7 @@ export default function App() {
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/vision" element={<Vision />} />
+                  <Route path="/notes" element={<Notes />} />
                   <Route path="/profile" element={<Profile />} />
                 </Route>
               </Route>

@@ -161,3 +161,43 @@
     animation: none !important;
   }
 }
+
+/* Markdown-rendered note bodies. Scoped so it cannot leak into the app. */
+.note-body h1 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--color-ink);
+  margin: 0.5rem 0 0.25rem;
+}
+.note-body h2 {
+  font-family: var(--font-display);
+  font-size: 0.975rem;
+  color: var(--color-ink);
+  margin: 0.5rem 0 0.25rem;
+}
+.note-body h3 {
+  font-family: var(--font-display);
+  font-size: 0.925rem;
+  color: var(--color-ink);
+  margin: 0.5rem 0 0.25rem;
+}
+.note-body ul {
+  list-style: disc;
+  padding-left: 1.15rem;
+  margin: 0.25rem 0;
+}
+.note-body li {
+  margin: 0.1rem 0;
+}
+.note-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+.note-body strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}

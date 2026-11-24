@@ -10,6 +10,7 @@ from reminders import start_scheduler, stop_scheduler
 from routers import (
     analytics as analytics_router,
     domains as domains_router,
+    notes as notes_router,
     reminders as reminders_router,
     sessions as sessions_router,
     subtasks as subtasks_router,
@@ -53,3 +54,4 @@ app.include_router(reminders_router.router)
 app.include_router(sessions_router.router)
 app.include_router(analytics_router.router)
 app.include_router(vision_router.router)
+app.include_router(notes_router.router)

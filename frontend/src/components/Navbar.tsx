@@ -23,6 +23,7 @@ const LINKS = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/analytics", label: "Analytics" },
   { to: "/vision", label: "Vision" },
+  { to: "/notes", label: "Notes" },
 ]
 
 export default function Navbar() {
