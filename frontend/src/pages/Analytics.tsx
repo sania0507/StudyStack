@@ -196,7 +196,7 @@ export default function Analytics() {
 
               return (
                 <div key={s.id} className="flex items-center gap-3 rounded-xl px-3 py-3">
-                  <Avatar name={user?.name ?? "?"} url={user?.avatarUrl} size={30} />
+                  <Avatar name={user?.name ?? "?"} hasAvatar={Boolean(user?.avatarUrl)} size={30} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-ink">
                       You tracked {formatMinutes(s.minutes)} in{" "}

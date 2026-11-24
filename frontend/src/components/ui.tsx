@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react"
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react"
+import { fetchAvatarObjectUrl } from "@/api/client"
 
 /*
   ============================================================
@@ -153,19 +155,69 @@ export function Pill({ children, tone = "violet" }: { children: ReactNode; tone?
 }
 
 /** Avatar: shows an image if we have one, otherwise the first letter. */
-export function Avatar({ name, url, size = 36 }: { name: string; url?: string; size?: number }) {
-  if (url) {
+/**
+ * The user's face, wherever it appears.
+ *
+ * `hasAvatar` is a boolean, NOT a URL, on purpose. The avatar endpoint needs an
+ * Authorization header and an <img src> cannot send one, so handing a protected
+ * URL to an <img> produces a 401 and a broken-image icon. This component fetches
+ * the bytes with the token and wraps them in a blob URL instead.
+ *
+ * Anything that goes wrong — 401, CORS, deleted avatar, offline — falls back to
+ * the initial, because a letter always beats a broken icon.
+ */
+export function Avatar({
+  name,
+  hasAvatar,
+  size = 36,
+}: {
+  name: string
+  hasAvatar?: boolean
+  size?: number
+}) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    if (!hasAvatar) {
+      setSrc(null)
+      setFailed(false)
+      return
+    }
+
+    let cancelled = false
+    let objectUrl: string | null = null
+
+    fetchAvatarObjectUrl()
+      .then((url) => {
+        objectUrl = url
+        if (url && !cancelled) setSrc(url)
+        else if (!cancelled) setFailed(true)
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [hasAvatar])
+
+  if (hasAvatar && src && !failed) {
     return (
       <img
-        src={url || "/placeholder.svg"}
+        src={src}
         alt={`${name}'s profile picture`}
         width={size}
         height={size}
-        className="rounded-full object-cover"
+        onError={() => setFailed(true)}
+        className="shrink-0 rounded-full object-cover"
         style={{ width: size, height: size }}
       />
     )
   }
+
   return (
     <span
       aria-hidden="true"

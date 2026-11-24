@@ -88,7 +88,7 @@ export default function Navbar() {
               )
             }
           >
-            <Avatar name={user?.name ?? "?"} url={user?.avatarUrl} size={28} />
+            <Avatar name={user?.name ?? "?"} hasAvatar={Boolean(user?.avatarUrl)} size={28} />
             <span className="text-xs font-medium text-ink">{user?.name?.split(" ")[0]}</span>
           </NavLink>
 
