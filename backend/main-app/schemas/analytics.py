@@ -20,6 +20,9 @@ class DomainProgress(BaseModel):
 class HeatmapDay(BaseModel):
     day: date
     minutes: int
+    # Tasks finished that day. A day with effort but no timer session still
+    # counts as showing up, so the heatmap needs both numbers.
+    tasks_completed: int
 
 
 class AnalyticsSummary(BaseModel):

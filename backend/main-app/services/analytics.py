@@ -150,13 +150,45 @@ def domain_completion(db: Session, user_id: uuid.UUID) -> list[dict]:
     return progress
 
 
-def heatmap(sessions: list[StudySession], days: int = 30) -> list[dict]:
+def tasks_completed_by_day(db: Session, user_id: uuid.UUID) -> dict[date, int]:
+    """How many tasks the user finished on each day.
+
+    completed_at is the only record of *when* a task was finished, so this is
+    the one source for historical completions. Grouping in SQL keeps it to a
+    single query regardless of task count.
+    """
+    rows = db.execute(
+        select(func.date(Task.completed_at), func.count())
+        .select_from(Task)
+        .join(Domain, Task.domain_id == Domain.id)
+        .where(
+            Domain.user_id == user_id,
+            Task.completed_at.is_not(None),
+        )
+        .group_by(func.date(Task.completed_at))
+    ).all()
+
+    return {day: count for day, count in rows}
+
+
+def heatmap(
+    sessions: list[StudySession],
+    days: int = 30,
+    completions: dict[date, int] | None = None,
+) -> list[dict]:
     totals = minutes_by_day(sessions)
+    completions = completions or {}
     today = date.today()
 
     result = []
     for offset in range(days - 1, -1, -1):
         day = today - timedelta(days=offset)
-        result.append({"day": day, "minutes": totals.get(day, 0)})
+        result.append(
+            {
+                "day": day,
+                "minutes": totals.get(day, 0),
+                "tasks_completed": completions.get(day, 0),
+            }
+        )
 
     return result

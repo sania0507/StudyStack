@@ -85,7 +85,9 @@ export default function Analytics() {
 
   const weekdayMinutes = summary.weekdayMinutes
   const peak = Math.max(1, ...weekdayMinutes.map((d) => d.minutes))
-  const totalWeek = weekdayMinutes.reduce((s, d) => s + d.minutes, 0)
+  // weekdayMinutes is one bucket per weekday across all history, not the
+  // current Monday-to-Sunday. The real weekly figure comes from the backend.
+  const weekMinutes = Math.round(summary.hoursPerWeek * 60)
   const weeklyGoalMinutes = 900
 
   // Most recent first, capped so the feed stays a feed.
@@ -104,20 +106,22 @@ export default function Analytics() {
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Time tracked this week"
-          value={formatMinutes(totalWeek)}
+          value={formatMinutes(weekMinutes)}
           caption={`Goal ${formatMinutes(weeklyGoalMinutes)}`}
-          progress={Math.min(1, totalWeek / weeklyGoalMinutes)}
+          progress={Math.min(1, weekMinutes / weeklyGoalMinutes)}
         />
         <StatCard
           label="Deep work streak"
           value={`${summary.streak} days`}
           caption="Building momentum"
           progress={Math.min(1, summary.streak / 50)}
+          accent="ember"
         />
         <StatCard
           label="Overdue tasks"
           value={`${summary.overdueCount}`}
           caption="Incomplete and past due"
+          accent="ember"
         />
       </div>
 
@@ -133,8 +137,8 @@ export default function Analytics() {
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <Card className="flex flex-col gap-5">
           <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-base font-semibold text-ink">Time tracked this week</h2>
-            <span className="text-xs text-faint">{formatMinutes(totalWeek)} total</span>
+            <h2 className="font-display text-base font-semibold text-ink">Time by weekday</h2>
+            <span className="text-xs text-faint">{formatMinutes(weekMinutes)} this week</span>
           </div>
 
           {/* A bar chart built from divs. For anything more complex than

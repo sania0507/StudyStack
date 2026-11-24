@@ -21,7 +21,7 @@ export function cx(...classes: (string | false | null | undefined)[]) {
 }
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "ghost" | "outline" | "danger"
+  variant?: "primary" | "ember" | "ghost" | "outline" | "danger"
   size?: "sm" | "md" | "lg"
   full?: boolean
 }
@@ -31,7 +31,10 @@ export function Button({ variant = "primary", size = "md", full, className, ...r
     "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 disabled:opacity-45 disabled:cursor-not-allowed active:scale-[0.98]"
 
   const variants = {
+    // Primary is the only place purple carries an action, so it stays rare.
     primary: "bg-violet text-ink hover:brightness-115 shadow-lg shadow-violet/20",
+    // Neutral high-contrast alternative, for when two actions sit side by side.
+    ember: "bg-ink text-base hover:bg-ink/90",
     ghost: "text-muted hover:text-ink hover:bg-elevated",
     outline: "border border-line text-ink hover:bg-elevated hover:border-violet-soft/50",
     danger: "border border-danger/40 text-danger hover:bg-danger/10",
@@ -84,11 +87,14 @@ export function StatCard({
   value,
   caption,
   progress,
+  accent = "violet",
 }: {
   label: string
   value: string
   caption: string
   progress?: number // 0..1 — only render the bar when meaningfully supplied
+  // Two accents, two jobs: violet measures time, ember measures momentum.
+  accent?: "violet" | "ember"
 }) {
   return (
     <Card className="flex flex-col gap-3">
@@ -97,7 +103,10 @@ export function StatCard({
       {progress !== undefined && (
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
           <div
-            className="h-full rounded-full bg-violet transition-[width] duration-700"
+            className={cx(
+              "h-full rounded-full transition-[width] duration-700",
+              accent === "ember" ? "bg-ink/45" : "bg-violet",
+            )}
             style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }}
           />
         </div>

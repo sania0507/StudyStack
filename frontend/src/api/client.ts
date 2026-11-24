@@ -38,6 +38,7 @@ const MAIN_URL = envUrl(import.meta.env.VITE_MAIN_URL, "http://localhost:8001")
 const ANALYTICS_URL = envUrl(import.meta.env.VITE_ANALYTICS_URL, MAIN_URL)
 
 const TOKEN_KEY = "studystack.token"
+const REFRESH_KEY = "studystack.refresh"
 
 /* ---------------- token storage ---------------- */
 
@@ -48,6 +49,21 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_KEY)
+}
+
+export function setRefreshToken(token: string | null) {
+  if (token) localStorage.setItem(REFRESH_KEY, token)
+  else localStorage.removeItem(REFRESH_KEY)
+}
+
+/** Ends the session client-side. The server-side revocation is best effort. */
+export function clearTokens() {
+  setToken(null)
+  setRefreshToken(null)
 }
 
 /* ---------------- the one place errors are shaped ---------------- */
@@ -61,10 +77,59 @@ export class ApiError extends Error {
   }
 }
 
+/*
+  Refresh is single-flight. Five dashboard requests can all receive a 401 at
+  the same moment; without this, all five would present the same refresh token
+  and the server would treat the four losers as reuse and revoke the family,
+  logging the user out for no reason. The first caller starts the refresh, the
+  rest await the same promise.
+*/
+let refreshInFlight: Promise<boolean> | null = null
+
+async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+
+  try {
+    // Deliberately not via request(): that would attach the dead access token
+    // and could recurse into refresh.
+    const response = await fetch(`${AUTH_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+
+    if (!response.ok) {
+      clearTokens()
+      return false
+    }
+
+    const pair = (await response.json()) as TokenResponse
+    setToken(pair.access_token)
+    setRefreshToken(pair.refresh_token)
+    return true
+  } catch {
+    // Network failure: keep the tokens and let the caller surface the error,
+    // so a brief outage does not log the user out.
+    return false
+  }
+}
+
+function refreshOnce(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = refreshAccessToken().finally(() => {
+    refreshInFlight = null
+  })
+
+  return refreshInFlight
+}
+
 async function request<T>(
   baseUrl: string,
   path: string,
   init: RequestInit = {},
+  isRetry = false,
 ): Promise<T> {
   const token = getToken()
 
@@ -81,12 +146,26 @@ async function request<T>(
 
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
+  let response = await fetch(`${baseUrl}${path}`, { ...init, headers })
 
-  // 401 means the stored token is gone or expired; drop it so the
-  // ProtectedRoute sends the user back to /login.
+  // One retry only. Excluded: the retry itself, and the refresh endpoint,
+  // which has no access token to be expired.
+  if (response.status === 401 && !isRetry && !path.startsWith("/auth/refresh")) {
+    const refreshed = await refreshOnce()
+
+    if (refreshed) {
+      const retryToken = getToken()
+      const retryHeaders = { ...headers }
+      if (retryToken) retryHeaders.Authorization = `Bearer ${retryToken}`
+
+      response = await fetch(`${baseUrl}${path}`, { ...init, headers: retryHeaders })
+    }
+  }
+
+  // Still 401 after a refresh means the session is really over; drop the
+  // tokens so ProtectedRoute sends the user back to /login.
   if (response.status === 401) {
-    setToken(null)
+    clearTokens()
   }
 
   if (!response.ok) {
@@ -121,7 +200,11 @@ async function readDetail(response: Response): Promise<string> {
 
 /* ---------------- auth ---------------- */
 
-type TokenResponse = { access_token: string; token_type: string }
+type TokenResponse = {
+  access_token: string
+  refresh_token: string
+  token_type: string
+}
 
 type BackendUser = {
   id: string
@@ -149,12 +232,13 @@ export async function login(
   email: string,
   password: string,
 ): Promise<User> {
-  const token = await request<TokenResponse>(AUTH_URL, "/auth/login", {
+  const pair = await request<TokenResponse>(AUTH_URL, "/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   })
 
-  setToken(token.access_token)
+  setToken(pair.access_token)
+  setRefreshToken(pair.refresh_token)
 
   return currentUser()
 }
@@ -180,7 +264,19 @@ export async function currentUser(): Promise<User> {
 }
 
 export function logout() {
-  setToken(null)
+  const refreshToken = getRefreshToken()
+
+  // Best effort: revoking server-side is what makes logout mean anything,
+  // but a failed call must never trap the user in a session.
+  if (refreshToken) {
+    void fetch(`${AUTH_URL}/auth/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }).catch(() => undefined)
+  }
+
+  clearTokens()
 }
 
 /* ---------------- domains ---------------- */
@@ -437,7 +533,7 @@ export type AnalyticsSummary = {
     completedTasks: number
     completionPercent: number
   }[]
-  heatmap: { date: string; minutes: number }[]
+  heatmap: { date: string; minutes: number; tasksCompleted: number }[]
 }
 
 export async function getAnalytics(): Promise<AnalyticsSummary> {
@@ -457,7 +553,7 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
       completed_tasks: number
       completion_percent: number
     }[]
-    heatmap: { day: string; minutes: number }[]
+    heatmap: { day: string; minutes: number; tasks_completed: number }[]
   }>(ANALYTICS_URL, "/analytics/summary")
 
   return {
@@ -482,6 +578,7 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
     heatmap: summary.heatmap.map((entry) => ({
       date: entry.day,
       minutes: entry.minutes,
+      tasksCompleted: entry.tasks_completed,
     })),
   }
 }

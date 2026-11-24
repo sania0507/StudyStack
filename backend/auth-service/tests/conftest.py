@@ -50,3 +50,17 @@ def client():
         Base.metadata.drop_all(bind=test_engine)
         test_engine.dispose()
 
+
+
+@pytest.fixture
+def db_session():
+    """A session against the same test database the client writes to.
+
+    Tests need it to inspect rows the API created (for example to prove only
+    a hash of the refresh token is stored, or to force an expiry).
+    """
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

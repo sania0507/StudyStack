@@ -26,6 +26,11 @@ type TimerValue = {
   isRunning: boolean
   domainId: string
   completedCount: number
+  /** Message for a finished block that could not be saved, or null. */
+  saveError: string | null
+  isRetrying: boolean
+  retrySave: () => void
+  dismissSaveError: () => void
   setDomainId: (id: string) => void
   setPreset: (minutes: number) => void
   setCustomSeconds: (seconds: number) => void
@@ -42,6 +47,13 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const [isRunning, setIsRunning] = useState(false)
   const [domainId, setDomainId] = useState("")
   const [completedCount, setCompletedCount] = useState(0)
+
+  // A finished block that could not be saved used to be a console.error and
+  // nothing else, so a backend outage silently ate the user's study time.
+  // Keeping the failed block here lets the panel show it and retry it.
+  const [failedSave, setFailedSave] = useState<{ domainId: string; minutes: number } | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isRetrying, setIsRetrying] = useState(false)
 
   // The timer's domain picker defaults to the first real domain.
   const { domains } = useDomains()
@@ -91,14 +103,41 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       const minutes = Math.max(1, Math.round(totalSeconds / 60))
 
       if (domainId) {
-        createSession({ domainId, minutes })
-          .then(() => setCompletedCount((c) => c + 1))
-          .catch((error) => {
-            console.error("Failed to save study session:", error)
-          })
+        saveBlock({ domainId, minutes })
       }
     }
   }, [secondsLeft, isRunning, totalSeconds, domainId])
+
+  // Saves one finished block. On failure the block is kept in state instead of
+  // being dropped, so the panel can offer a retry once the backend is reachable.
+  async function saveBlock(block: { domainId: string; minutes: number }) {
+    try {
+      await createSession(block)
+      setCompletedCount((c) => c + 1)
+      setFailedSave(null)
+      setSaveError(null)
+    } catch (error) {
+      console.error("Failed to save study session:", error)
+      setFailedSave(block)
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "This session could not be saved.",
+      )
+    }
+  }
+
+  function retrySave() {
+    if (!failedSave || isRetrying) return
+
+    setIsRetrying(true)
+    saveBlock(failedSave).finally(() => setIsRetrying(false))
+  }
+
+  function dismissSaveError() {
+    setFailedSave(null)
+    setSaveError(null)
+  }
 
   /** Lazily create/resume an AudioContext. Browsers require a user gesture,
       so we resume it inside start() — which is always a click. */
@@ -153,6 +192,10 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       isRunning,
       domainId,
       completedCount,
+      saveError,
+      isRetrying,
+      retrySave,
+      dismissSaveError,
       setDomainId,
       setPreset: (minutes: number) => applySeconds(minutes * 60),
       setCustomSeconds: applySeconds,
@@ -168,7 +211,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
         setSecondsLeft(totalSeconds)
       },
     }),
-    [secondsLeft, totalSeconds, isRunning, domainId, completedCount],
+    [secondsLeft, totalSeconds, isRunning, domainId, completedCount, saveError, isRetrying],
   )
 
   return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>

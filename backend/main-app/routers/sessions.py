@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user_id
 from database import get_db
-from events import publish_session_completed
 from models import Domain, StudySession
 from schemas import StudySessionCreate, StudySessionOut
 
@@ -42,12 +41,6 @@ def create_study_session(
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
-
-    publish_session_completed(
-        user_id=user_id,
-        domain_id=new_session.domain_id,
-        minutes=new_session.minutes,
-    )
 
     return new_session
 

@@ -35,6 +35,10 @@ export default function TimerPanel() {
     pause,
     reset,
     completedCount,
+    saveError,
+    isRetrying,
+    retrySave,
+    dismissSaveError,
   } = useTimer()
   const { domains } = useDomains()
 
@@ -194,6 +198,24 @@ export default function TimerPanel() {
       <p className="border-t border-line pt-4 text-center text-xs text-faint">
         {completedCount} block{completedCount === 1 ? "" : "s"} finished this session
       </p>
+
+      {/* A finished block whose save failed is kept, not dropped, so the
+          minutes are not lost to a backend that was briefly unreachable. */}
+      {saveError && (
+        <div className="flex flex-col gap-2 rounded-xl border border-danger/40 bg-danger/5 p-3">
+          <p className="text-xs text-danger">
+            That block was not saved: {saveError}
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={retrySave} disabled={isRetrying}>
+              {isRetrying ? "Retrying…" : "Retry save"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={dismissSaveError} disabled={isRetrying}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
     </Card>
   )
 }

@@ -5,10 +5,6 @@ class Settings(BaseSettings):
     database_url: str
     jwt_secret_key: str
 
-    # The app still runs when RabbitMQ is unavailable; events are simply
-    # not published.
-    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
-
     # Comma-separated, so one env var covers local dev and production:
     #   CORS_ORIGINS=http://localhost:3000,https://studystack.vercel.app
     cors_origins: str = "http://localhost:3000"

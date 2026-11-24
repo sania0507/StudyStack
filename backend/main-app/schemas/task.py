@@ -11,6 +11,13 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
+    """A partial update.
+
+    An omitted field means "leave it alone"; an explicit null on due_date means
+    "clear the deadline". Those are different requests, so the handler has to
+    consult model_fields_set rather than testing for None.
+    """
+
     title: str | None = None
     completed: bool | None = None
     due_date: datetime | None = None

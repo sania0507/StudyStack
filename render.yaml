@@ -8,8 +8,7 @@
 # Then fill in every value marked sync: false.
 #
 # The database comes from Neon or Supabase (both free) and is passed in as
-# DATABASE_URL. A managed RabbitMQ instance (CloudAMQP's free plan) supplies
-# RABBITMQ_URL.
+# DATABASE_URL.
 
 services:
   - type: web
@@ -53,8 +52,6 @@ services:
           type: web
           name: studystack-auth
           envVarKey: JWT_SECRET_KEY
-      - key: RABBITMQ_URL
-        sync: false
       - key: CORS_ORIGINS
         sync: false
       # The migrations own the task-service schema.

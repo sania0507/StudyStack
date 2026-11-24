@@ -1,14 +1,21 @@
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from auth import create_access_token, get_current_user
+from auth import (
+    get_current_user,
+    issue_token_pair,
+    revoke_all_for_user,
+    revoke_one,
+    rotate_refresh_token,
+)
 from database import engine, get_db
 from models import Base, User
 from schemas import (
     LoginRequest,
     PasswordChange,
+    RefreshRequest,
     Token,
     UserCreate,
     UserOut,
@@ -93,7 +100,7 @@ def register_user(
 
     # FastAPI uses UserOut to serialize safe user information into JSON.
     # The password hash is not included in the response.
-    return new_user
+    return UserOut.from_user(new_user)
 
 
 @app.post("/auth/login", response_model=Token)
@@ -119,13 +126,15 @@ def login(
             detail="Invalid email or password",
         )
 
-    # Generate a signed JWT containing the authenticated user's ID.
-    access_token = create_access_token(str(user.id))
+    # Two tokens: a short-lived access token for every request, and a
+    # long-lived refresh token that can be exchanged once for a new pair.
+    access_token, refresh_token = issue_token_pair(db, user.id)
 
     # Token defines the response structure.
-    # The client receives the token, not the user's password or hash.
+    # The client receives the tokens, not the user's password or hash.
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -138,7 +147,7 @@ def read_current_user(
     # It verifies the supplied Bearer token and retrieves the user.
     # If authentication fails, the dependency raises 401 and this function
     # does not execute.
-    return current_user
+    return UserOut.from_user(current_user)
 
 
 @app.patch("/auth/me", response_model=UserOut)
@@ -185,7 +194,7 @@ def update_current_user(
 
     db.refresh(current_user)
 
-    return current_user
+    return UserOut.from_user(current_user)
 
 
 @app.post("/auth/change-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -214,4 +223,129 @@ def change_password(
 
     db.commit()
 
+    # Changing a password ends every other session: if the reason for the
+    # change is a suspected compromise, leaving old refresh tokens alive would
+    # defeat the point.
+    revoke_all_for_user(db, current_user.id)
+
     return None
+
+
+@app.post("/auth/refresh", response_model=Token)
+def refresh(
+    payload: RefreshRequest,
+    db: Session = Depends(get_db),
+):
+    """Exchanges a refresh token for a new pair.
+
+    The presented token is revoked in the same transaction that issues its
+    replacement, so each refresh token works exactly once.
+    """
+    access_token, refresh_token = rotate_refresh_token(
+        db,
+        payload.refresh_token,
+    )
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    payload: RefreshRequest,
+    db: Session = Depends(get_db),
+):
+    """Revokes the presented refresh token.
+
+    Idempotent and unauthenticated on purpose: a client whose access token has
+    already expired must still be able to end its session.
+    """
+    revoke_one(db, payload.refresh_token)
+
+    return None
+
+
+# A resized 256px avatar is well under this; the cap stops the column being
+# used as free file storage.
+MAX_AVATAR_BYTES = 512 * 1024
+
+ALLOWED_AVATAR_TYPES = {"image/png", "image/jpeg", "image/webp"}
+
+
+@app.post("/auth/me/avatar", response_model=UserOut)
+async def upload_avatar(
+    file: UploadFile,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Replaces the caller's avatar.
+
+    The bytes are stored in Postgres because the alternative is a storage
+    service and its credentials for one small image per user.
+    """
+    if file.content_type not in ALLOWED_AVATAR_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Avatar must be a PNG, JPEG or WebP image",
+        )
+
+    data = await file.read()
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Avatar file is empty",
+        )
+
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Avatar must be under 512 KB",
+        )
+
+    current_user.avatar_mime = file.content_type
+    current_user.avatar_data = data
+
+    db.commit()
+    db.refresh(current_user)
+
+    return UserOut.from_user(current_user)
+
+
+@app.get("/auth/me/avatar")
+def read_avatar(
+    current_user: User = Depends(get_current_user),
+):
+    """Serves the caller's avatar bytes.
+
+    Behind the same Bearer token as everything else, so an avatar URL cannot be
+    walked by id.
+    """
+    if current_user.avatar_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No avatar set",
+        )
+
+    return Response(
+        content=current_user.avatar_data,
+        media_type=current_user.avatar_mime or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@app.delete("/auth/me/avatar", response_model=UserOut)
+def delete_avatar(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.avatar_mime = None
+    current_user.avatar_data = None
+
+    db.commit()
+    db.refresh(current_user)
+
+    return UserOut.from_user(current_user)

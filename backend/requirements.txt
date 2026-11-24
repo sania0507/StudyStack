@@ -19,7 +19,6 @@ iniconfig==2.3.1
 Mako==1.4.3
 MarkupSafe==3.0.4
 packaging==26.3
-pika==1.5.0
 pluggy==1.7.0
 psycopg==3.3.6
 psycopg-binary==3.3.6
@@ -33,6 +32,7 @@ Pygments==2.21.0
 PyJWT==2.15.1
 pytest==9.1.1
 python-dotenv==1.2.4
+python-multipart==0.0.20
 SQLAlchemy==2.1.1
 starlette==1.6.0
 typing-inspection==0.4.4

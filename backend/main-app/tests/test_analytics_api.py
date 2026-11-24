@@ -113,3 +113,36 @@ def test_summary_requires_authentication(client):
     finally:
         if saved is not None:
             app.dependency_overrides[get_current_user_id] = saved
+
+
+def test_heatmap_counts_tasks_completed_not_only_minutes(client, domain_id):
+    # A day with finished tasks but no timer session still counts as activity.
+    task = client.post(
+        "/tasks", json={"domain_id": domain_id, "title": "Finish me"}
+    ).json()
+    client.patch(f"/tasks/{task['id']}", json={"completed": True})
+
+    heatmap = client.get("/analytics/summary").json()["heatmap"]
+    today = heatmap[-1]
+
+    assert today["minutes"] == 0
+    assert today["tasks_completed"] == 1
+
+
+def test_heatmap_counts_every_task_finished_on_the_same_day(client, domain_id):
+    for n in range(3):
+        task = client.post(
+            "/tasks", json={"domain_id": domain_id, "title": f"Task {n}"}
+        ).json()
+        client.patch(f"/tasks/{task['id']}", json={"completed": True})
+
+    today = client.get("/analytics/summary").json()["heatmap"][-1]
+
+    assert today["tasks_completed"] == 3
+
+
+def test_heatmap_never_reports_a_future_day(client):
+    heatmap = client.get("/analytics/summary").json()["heatmap"]
+
+    assert [day["day"] for day in heatmap] == sorted(day["day"] for day in heatmap)
+    assert heatmap[-1]["day"] == __import__("datetime").date.today().isoformat()

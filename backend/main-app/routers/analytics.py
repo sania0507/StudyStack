@@ -15,6 +15,7 @@ from services.analytics import (
     hours_per_week,
     minutes_by_day,
     overdue_task_count,
+    tasks_completed_by_day,
     weekday_minutes,
 )
 
@@ -55,5 +56,9 @@ def analytics_summary(
         sessions_per_day=sessions_per_day,
         weekday_minutes=weekday_minutes(sessions),
         domain_completion=domain_completion(db, user_id),
-        heatmap=heatmap(sessions, heatmap_days),
+        heatmap=heatmap(
+            sessions,
+            heatmap_days,
+            tasks_completed_by_day(db, user_id),
+        ),
     )

@@ -26,13 +26,16 @@ The design assumption is that you'll show up unpredictably. Bursts are expected,
 
 ## What Is Included
 
-- Accounts with JWT authentication; every request is scoped to the caller's own data.
+- Accounts with short-lived access tokens and rotating refresh tokens; every
+  request is scoped to the caller's own data.
 - Login, registration, profile editing (name and email) and password change.
+  Changing a password ends every other session.
 - Domain CRUD.
 - Task CRUD with optional due dates and completion tracking.
 - Subtask CRUD.
 - Overdue logic derived on read, never stored.
-- Reminders with a scheduled job that fires each one exactly once.
+- Reminders with a scheduled job that claims each one before it fires, so it is
+  never processed twice by the same process.
 - A focus timer that records study sessions against a domain.
 - Analytics: hours per week, streak, overdue count, weekday split, per-domain completion, daily heatmap.
 - Docker Compose for local development.
@@ -92,22 +95,27 @@ Analytics queries now share a process with task writes. For a single-user tracke
 
 ---
 
-## RabbitMQ Status
+## Events
 
-`backend/main-app/events.py` still publishes `session.completed` and `task.completed` to a durable topic exchange, each with a unique `event_id`. It returns `False` if the broker is unreachable rather than raising, so a broker outage cannot break a request.
+There is no message broker. Events were part of the three-service design: the
+task service published `session.completed` and `task.completed` to a RabbitMQ
+topic exchange for an analytics consumer that no longer exists.
 
-There is no consumer. The consumer belonged to the three-service design and was removed when analytics moved in-process, so nothing currently reads these events. Analytics numbers come from the database and are correct with RabbitMQ absent entirely.
+The publisher was removed once it was clear nothing would read from it. Every
+analytics number is computed from the database on request, so the events were
+write-only overhead: a broker connection opened and closed inside each request,
+for messages that were discarded because no queue was ever bound to the
+exchange.
 
-`RABBITMQ_URL` is therefore optional. Omit it and the app runs normally.
-
-Removing the publisher outright would mean deleting `events.py`, two router calls, the `pika` dependency and four tests. It is left in place as a durable event log that a consumer could pick up without changing any endpoint.
-
----
+If a real consumer appears later, the right starting point is the
+transactional outbox pattern rather than a direct publish inside the request
+path, so an event cannot be lost between the commit and the broker.
 
 ## Database Relationships
 
 ```
 users (auth-service)
+  ├──< refresh_tokens   (one row per issued token, hashed)
   └── owns ──> domains.user_id
                  │
                  └──< tasks
@@ -125,6 +133,48 @@ Deleting a domain cascades to its tasks, and from there to subtasks and reminder
 
 ---
 
+## Authentication
+
+Login issues two tokens. The access token is a 30-minute HS256 JWT and is
+verified by signature alone, so neither service touches the database to
+authenticate a request. The refresh token is 30 days, opaque, and stored hashed
+in `refresh_tokens` in the auth service.
+
+A refresh token is a bearer credential, so the table keeps only its SHA-256
+hash and never the token itself. SHA-256 is deliberate here and Argon2 would be
+wrong: the token is 48 random bytes, so there is nothing to brute force, and
+every refresh needs a fast lookup.
+
+Rotation works like this:
+
+1. Look up `sha256(token)`. Unknown is a 401.
+2. Already revoked means the token was presented twice. Either the client or an
+   attacker holds it, and one row cannot say which, so the **whole family** is
+   revoked and both parties are forced to log in again.
+3. Otherwise claim it with a single conditional update,
+   `UPDATE ... WHERE id = ? AND revoked_at IS NULL`. If zero rows are affected,
+   another request rotated it first: same reuse treatment.
+4. Issue a new pair in the same family.
+
+`family_id` groups every token descended from one login, which is what makes
+step 2 possible. `replaced_by_id` records which token superseded which, so the
+chain is auditable.
+
+Step 3 is the part that has to be atomic. Reading the row and then revoking it
+would let two concurrent refreshes both pass the check and both issue tokens,
+silently breaking rotation. It is the same claim-before-work pattern the
+reminder worker needs.
+
+Expired rows are pruned whenever a new token is issued, keeping the table from
+growing without bound.
+
+On the client, `frontend/src/api/client.ts` refreshes once on a 401 and retries
+the request exactly once. Refresh is single-flight: five requests failing at
+the same moment produce one refresh, not five, because five would rotate the
+same token four times too many and trip the reuse detector.
+
+---
+
 ## API Overview
 
 ### auth-service (8000)
@@ -132,10 +182,12 @@ Deleting a domain cascades to its tasks, and from there to subtasks and reminder
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/auth/register` | 409 if the email exists; `name` optional |
-| POST | `/auth/login` | returns a JWT |
+| POST | `/auth/login` | returns an access token, a refresh token and `token_type` |
+| POST | `/auth/refresh` | exchanges a refresh token for a new pair; 401 if unknown, expired, revoked or already rotated |
+| POST | `/auth/logout` | 204; revokes the presented refresh token. Idempotent and unauthenticated, so an expired client can still end its session |
 | GET | `/auth/me` | requires `Authorization: Bearer <token>` |
 | PATCH | `/auth/me` | update `name` and/or `email`; 409 if the email is taken |
-| POST | `/auth/change-password` | 204 on success, 401 if the current password is wrong |
+| POST | `/auth/change-password` | 204 on success, 401 if the current password is wrong. Revokes every refresh token for the user |
 
 ### task-service (8001)
 
@@ -220,13 +272,33 @@ TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/s
 
 60 tests: 44 in the task service, 16 in auth.
 
-Covered: registration and duplicate email, login and wrong password, profile updates, password change, CRUD for every resource, cross-user isolation, completion timestamps, overdue derivation across all four due-date cases, reminder idempotency, domain cascade to tasks and nested children, analytics windowing and scoping, and event publishing degrading when the broker is unreachable.
+Covered: registration and duplicate email, login and wrong password, profile
+updates, password change, refresh rotation and reuse detection revoking the
+family, refresh-token expiry, logout idempotency, CRUD for every resource,
+cross-user isolation on read, update and delete, completion timestamps, overdue
+derivation across all four due-date cases, clearing a due date, reminder
+idempotency, domain cascade to tasks and nested children, and analytics
+windowing and scoping.
+
+Running the suites inside the compose network avoids Docker Desktop's WSL port
+forwarding, which is unreliable for PostgreSQL connections:
+
+```bash
+DB=postgresql+psycopg://studystack_user:studystack_dev_password@postgres:5432
+
+docker compose run --rm -e SERVICE_NAME=auth-service   -e TEST_DATABASE_URL=$DB/studystack_auth_test   task-service python -m pytest -q
+
+docker compose run --rm -e SERVICE_NAME=main-app   -e TEST_DATABASE_URL=$DB/studystack_main_test   task-service python -m pytest -q
+```
+
+`SERVICE_NAME` is what selects the folder: the entrypoint changes into that
+service's directory and runs its migrations before starting the command, so
+`-w` has no effect.
 
 Create the test databases once:
 
 ```bash
-sudo -u postgres psql -c "CREATE DATABASE studystack_main_test OWNER studystack_user;"
-sudo -u postgres psql -c "CREATE DATABASE studystack_auth_test OWNER studystack_user;"
+docker compose exec postgres psql -U studystack_user -d studystack   -c "CREATE DATABASE studystack_auth_test;"   -c "CREATE DATABASE studystack_main_test;"
 ```
 
 ---
@@ -238,7 +310,7 @@ Alembic owns the schema.
 | Service | Revision table | Owns |
 |---|---|---|
 | `task-service` | `alembic_version_tasks` | domains, tasks, subtasks, reminders, study_sessions |
-| `auth-service` | `alembic_version_auth` | users |
+| `auth-service` | `alembic_version_auth` | users, refresh_tokens |
 
 Migrations run at container start when `MIGRATE_ON_START=true`, so a first deploy against an empty database needs no manual step. To run by hand:
 
@@ -264,7 +336,6 @@ Both services build from the same image and pick their folder from `SERVICE_NAME
 | `JWT_SECRET_KEY` | required | required | must be identical on both |
 | `CORS_ORIGINS` | required | required | comma-separated, no trailing slash |
 | `MIGRATE_ON_START` | `true` | `true` | runs `alembic upgrade head` |
-| `RABBITMQ_URL` | not used | optional | publishing only, no consumer |
 | `PORT` | platform-set | platform-set | honoured by the entrypoint |
 
 `JWT_SECRET_KEY` must match across both. If they differ, login succeeds but every later request returns 401, because auth signs tokens the task service cannot verify.
@@ -277,7 +348,21 @@ The image defines both an `ENTRYPOINT` and a `CMD`, so it starts whether the hos
 
 - Deleting a domain removes its tasks, subtasks, reminders and sessions.
 - Reminder delivery is a line in the server log. Swapping in email or push does not change the bookkeeping.
+- `max_instances=1` only stops overlapping runs inside one process. Two API
+  instances would still both scan the same rows, so a second instance needs an
+  atomic claim or a worker outside the web process.
+- No endpoint paginates. Every list returns everything the user owns.
+- Analytics aggregates in Python, one pass per request. Fine for a personal
+  tracker, a timeout for years of history. The fix is `GROUP BY` in SQL.
+- The task service verifies the JWT signature without querying the database, so
+  a token issued to a deleted user still decodes until it expires.
+- No rate limiting on `/auth/login` or `/auth/register`.
 - The analytics week runs Monday to Sunday in server-local time.
 - Dashboard deletes are optimistic: the row disappears immediately and returns with an inline error banner if the server rejects it.
 - Passwords are hashed with Argon2 through `pwdlib` and hashes are never returned by any endpoint.
-- Access tokens expire after 30 minutes with no refresh token, so long sessions require re-login.
+- Access tokens expire after 30 minutes; a refresh token buys a new pair without
+  asking for the password again. Refresh tokens are rotated on every use, and
+  reuse of an old one revokes the whole family.
+- Tokens live in `localStorage`, so one XSS is a stolen session. `HttpOnly`
+  cookies would be safer and would need CSRF handling plus a same-site
+  deployment.

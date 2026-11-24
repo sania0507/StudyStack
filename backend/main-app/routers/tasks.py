@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user_id
 from database import get_db
-from events import publish_task_completed
 from models import Domain, Reminder, Task
 from schemas import TaskCreate, TaskUpdate, TaskOut
 from services.deadlines import is_overdue, task_to_out
@@ -93,13 +92,22 @@ def get_tasks(
     if domain_id is not None:
         query = query.where(Task.domain_id == domain_id)
 
-    tasks = db.scalars(query).all()
-
+    # Overdue is derived, so it still cannot be indexed, but it can be
+    # expressed as a predicate: the database does the filtering instead of
+    # shipping every row to Python first.
     if overdue is not None:
-        tasks = [
-            task for task in tasks
-            if is_overdue(task) == overdue
-        ]
+        is_past_due = Task.due_date.is_not(None) & (Task.due_date < datetime.now())
+
+        if overdue:
+            query = query.where(is_past_due, Task.completed.is_(False))
+        else:
+            query = query.where(
+                Task.due_date.is_(None)
+                | (Task.due_date >= datetime.now())
+                | Task.completed.is_(True)
+            )
+
+    tasks = db.scalars(query).all()
 
     reminder_times = pending_reminder_times(db, [task.id for task in tasks])
 
@@ -131,7 +139,9 @@ def update_task(
     if task.title is not None:
         existing_task.title = task.title
 
-    if task.due_date is not None:
+    # Absent leaves the deadline alone; an explicit null clears it. Testing
+    # for None alone would make it impossible to remove a due date.
+    if "due_date" in task.model_fields_set:
         existing_task.due_date = task.due_date
 
     if task.completed is not None:
@@ -142,14 +152,6 @@ def update_task(
 
     db.commit()
     db.refresh(existing_task)
-
-    # Only announce the change when the task actually became completed.
-    if task.completed is True:
-        publish_task_completed(
-            user_id=user_id,
-            task_id=existing_task.id,
-            domain_id=existing_task.domain_id,
-        )
 
     return task_to_out(existing_task, reminder_time_for(db, existing_task.id))
 

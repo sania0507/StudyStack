@@ -7,7 +7,6 @@
 #   8000  auth-service
 #   8001  task service (main-app, includes analytics)
 #   5432  PostgreSQL
-#   5672  RabbitMQ
 #
 # Internally, services talk to each other by service name, e.g. the task
 # service reaches the database at postgres:5432 not localhost:5432.
@@ -29,17 +28,6 @@ services:
       test: ["CMD-SHELL", "pg_isready -U studystack_user -d studystack"]
       interval: 5s
       timeout: 5s
-      retries: 10
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    ports:
-      - "5672:5672"
-      - "15672:15672"   # management UI: guest / guest
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 10s
       retries: 10
 
   auth-service:
@@ -79,7 +67,6 @@ services:
       SERVICE_NAME: main-app
       DATABASE_URL: postgresql+psycopg://studystack_user:${POSTGRES_PASSWORD:-studystack_dev_password}@postgres:5432/studystack
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       # The migrations own the schema, so a fresh database is prepared
       # the same way in development and production.
@@ -91,8 +78,6 @@ services:
       - "8001:8001"
     depends_on:
       postgres:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
       # Waits for auth-service so the users table exists before the
       # shared schema is created.

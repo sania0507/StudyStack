@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(await api.currentUser())
       } catch {
         // Expired or invalid token: start clean.
-        api.setToken(null)
+        api.clearTokens()
         setUser(null)
       } finally {
         setIsLoading(false)

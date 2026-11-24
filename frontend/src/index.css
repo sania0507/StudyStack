@@ -13,22 +13,29 @@
   follows. That is the entire point of design tokens.
 */
 @theme {
-  /* surfaces — near-black charcoal, then progressively lighter */
-  --color-base: oklch(0.16 0.012 296); /* page background */
-  --color-surface: oklch(0.2 0.016 296); /* cards */
-  --color-elevated: oklch(0.245 0.02 296); /* inputs, hovered cards */
-  --color-line: oklch(0.31 0.022 296); /* borders */
+  /* surfaces — pure neutrals. Zero chroma on purpose: the interface reads as
+     black and white, and colour is reserved for the two places that earn it
+     (the logo mark and the heatmap). A tinted "dark grey" always looks muddy
+     next to a real black. */
+  --color-base: oklch(0.115 0 0); /* page background — near black */
+  --color-surface: oklch(0.155 0 0); /* cards */
+  --color-elevated: oklch(0.205 0 0); /* inputs, hovered cards */
+  --color-line: oklch(0.28 0 0); /* borders */
 
   /* text */
-  --color-ink: oklch(0.96 0.008 300); /* warm white — headings */
-  --color-muted: oklch(0.7 0.025 296); /* gray-lavender — body */
-  --color-faint: oklch(0.63 0.022 296); /* labels, captions — clears 4.5:1 on all surfaces */
+  --color-ink: oklch(0.97 0 0); /* white — headings */
+  --color-muted: oklch(0.72 0 0); /* body */
+  --color-faint: oklch(0.6 0 0); /* labels, captions */
 
-  /* accents */
-  --color-violet: oklch(0.62 0.19 295); /* primary purple */
-  --color-violet-soft: oklch(0.72 0.12 295); /* muted lavender */
-  --color-mint: oklch(0.78 0.13 165); /* soft green — success */
-  --color-danger: oklch(0.62 0.19 25); /* rose/red — destructive actions */
+  /* accents — purple is the only colour in the system, and it is used
+     sparingly: the logo, the heatmap, progress and primary actions.
+     Everything else is neutral so those two moments stand out. */
+  --color-violet: oklch(0.58 0.21 300); /* purple — primary + heatmap */
+  --color-violet-soft: oklch(0.68 0.14 300); /* muted lavender */
+  --color-ember: oklch(0.7 0.01 0); /* neutral — kept so callers still resolve */
+  --color-ember-soft: oklch(0.8 0.01 0); /* neutral */
+  --color-mint: oklch(0.74 0.13 165); /* success only */
+  --color-danger: oklch(0.62 0.2 25); /* destructive only */
 
   /* type — two families only: Space Grotesk for display, Inter for body */
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
@@ -46,15 +53,17 @@
   /* Light theme — same tokens, daylight values. ThemeContext flips the class. */
   html.light {
     color-scheme: light;
-    --color-base: oklch(0.965 0.004 296);
-    --color-surface: oklch(0.992 0.002 296);
-    --color-elevated: oklch(0.94 0.005 296);
-    --color-line: oklch(0.88 0.008 296);
-    --color-ink: oklch(0.22 0.015 296);
-    --color-muted: oklch(0.45 0.02 296);
-    --color-faint: oklch(0.52 0.02 296);
-    --color-violet: oklch(0.56 0.19 295);
-    --color-violet-soft: oklch(0.5 0.15 295);
+    --color-base: oklch(0.98 0 0);
+    --color-surface: oklch(1 0 0);
+    --color-elevated: oklch(0.95 0 0);
+    --color-line: oklch(0.89 0 0);
+    --color-ink: oklch(0.2 0 0);
+    --color-muted: oklch(0.45 0 0);
+    --color-faint: oklch(0.52 0 0);
+    --color-violet: oklch(0.5 0.21 300);
+    --color-violet-soft: oklch(0.45 0.15 300);
+    --color-ember: oklch(0.5 0.01 0);
+    --color-ember-soft: oklch(0.4 0.01 0);
     --color-mint: oklch(0.5 0.12 165);
     --color-danger: oklch(0.55 0.19 25);
   }

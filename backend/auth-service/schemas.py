@@ -2,6 +2,8 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, ConfigDict
+
+from models import User
 # EmailStr is a special Pydantic type that validates whether a value looks like a valid email address.
 
 #UserCreate
@@ -24,6 +26,20 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str | None = None
     created_at: datetime
+    # A flag, not the image: the bytes are served by GET /auth/me/avatar so
+    # they can be cached by the browser instead of riding on every payload.
+    # Derived in the handler, since there is no has_avatar column.
+    has_avatar: bool = False
+
+    @classmethod
+    def from_user(cls, user: "User") -> "UserOut":
+        return cls(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            created_at=user.created_at,
+            has_avatar=user.avatar_data is not None,
+        )
 
 
 class UserUpdate(BaseModel):
@@ -45,8 +61,15 @@ class LoginRequest(BaseModel):
 
 
 class Token(BaseModel):
-    # This represents the response the backend sends after successful authentication.
-    
-    access_token: str # access_token holds the JWT.
+    # This represents the response the backend sends after successful
+    # authentication.
+    access_token: str # access_token holds the short-lived JWT.
+    # The access token expires in minutes; the refresh token buys a new one
+    # without asking for the password again.
+    refresh_token: str
     token_type: str = "bearer" # token_type tells the client what kind of token it received.
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
