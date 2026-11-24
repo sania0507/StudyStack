@@ -12,6 +12,7 @@ import Register from "@/pages/Register"
 import Dashboard from "@/pages/Dashboard"
 import Analytics from "@/pages/Analytics"
 import Profile from "@/pages/Profile"
+import Vision from "@/pages/Vision"
 
 /*
   ============================================================
@@ -58,6 +59,7 @@ export default function App() {
                 <Route element={<AppLayout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/vision" element={<Vision />} />
                   <Route path="/profile" element={<Profile />} />
                 </Route>
               </Route>

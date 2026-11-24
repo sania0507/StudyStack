@@ -22,6 +22,7 @@ import Logo from "@/components/Logo"
 const LINKS = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/analytics", label: "Analytics" },
+  { to: "/vision", label: "Vision" },
 ]
 
 export default function Navbar() {

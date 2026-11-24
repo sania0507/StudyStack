@@ -13,7 +13,7 @@
                           /sessions, /analytics/summary
 */
 
-import type { Domain, Session, Subtask, Task, User } from "@/api/types"
+import type { Domain, Session, Subtask, Task, User, VisionItem } from "@/api/types"
 
 // An env var that exists but is EMPTY is not caught by ??, which would leave
 // the base URL as "" and send requests to the frontend's own origin.
@@ -49,6 +49,11 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+function authorizationHeader(): Record<string, string> {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 export function getRefreshToken(): string | null {
@@ -138,7 +143,10 @@ async function request<T>(
   // preflight is rejected the request dies before it reaches the server.
   const headers: Record<string, string> = {}
 
-  if (init.body !== undefined && init.body !== null) {
+  // FormData sets its own multipart boundary; overriding it breaks the upload.
+  const isFormData = init.body instanceof FormData
+
+  if (init.body !== undefined && init.body !== null && !isFormData) {
     headers["Content-Type"] = "application/json"
   }
 
@@ -211,10 +219,16 @@ type BackendUser = {
   email: string
   name: string | null
   created_at: string
+  has_avatar: boolean
 }
 
 // Prefer the name the user chose; fall back to the email prefix so new
 // accounts still show something friendly.
+/** Absolute URL for the stored avatar, or "" when the user has none. */
+function avatarUrlFor(user: BackendUser): string {
+  return user.has_avatar ? `${AUTH_URL}/auth/me/avatar` : ""
+}
+
 function toUser(user: BackendUser): User {
   const fallback = user.email.split("@")[0]
   const name = user.name?.trim() || fallback
@@ -223,7 +237,7 @@ function toUser(user: BackendUser): User {
     id: user.id,
     name: name.charAt(0).toUpperCase() + name.slice(1),
     email: user.email,
-    avatarUrl: "",
+    avatarUrl: avatarUrlFor(user),
     joinedAt: user.created_at,
   }
 }
@@ -286,6 +300,7 @@ type BackendDomain = {
   name: string
   colour: string
   user_id: string
+  repeats_daily: boolean
 }
 
 export async function getDomains(): Promise<Domain[]> {
@@ -297,13 +312,17 @@ export async function getDomains(): Promise<Domain[]> {
     colour: domain.colour,
     // Filled in from analytics so the dashboard can show week totals.
     minutesThisWeek: 0,
+    repeatsDaily: domain.repeats_daily,
   }))
 }
 
-export async function createDomain(name: string): Promise<Domain> {
+export async function createDomain(
+  name: string,
+  repeatsDaily = false,
+): Promise<Domain> {
   const domain = await request<BackendDomain>(MAIN_URL, "/domains", {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, repeats_daily: repeatsDaily }),
   })
 
   return {
@@ -311,16 +330,22 @@ export async function createDomain(name: string): Promise<Domain> {
     name: domain.name,
     colour: domain.colour,
     minutesThisWeek: 0,
+    repeatsDaily: domain.repeats_daily,
   }
 }
 
 export async function updateDomain(
   id: string,
-  patch: { name?: string; colour?: string },
+  patch: { name?: string; colour?: string; repeatsDaily?: boolean },
 ): Promise<Domain> {
+  const body: Record<string, unknown> = {}
+  if (patch.name !== undefined) body.name = patch.name
+  if (patch.colour !== undefined) body.colour = patch.colour
+  if (patch.repeatsDaily !== undefined) body.repeats_daily = patch.repeatsDaily
+
   const domain = await request<BackendDomain>(MAIN_URL, `/domains/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(patch),
+    body: JSON.stringify(body),
   })
 
   return {
@@ -328,6 +353,7 @@ export async function updateDomain(
     name: domain.name,
     colour: domain.colour,
     minutesThisWeek: 0,
+    repeatsDaily: domain.repeats_daily,
   }
 }
 
@@ -597,6 +623,66 @@ export async function updateProfile(
   return toUser(user)
 }
 
+/** Shrinks an image in the browser so uploads stay small. */
+async function shrinkImage(file: File, max = 256): Promise<Blob> {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+  const width = Math.round(bitmap.width * scale)
+  const height = Math.round(bitmap.height * scale)
+
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext("2d")
+  if (!context) return file
+
+  context.drawImage(bitmap, 0, 0, width, height)
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob ?? file), "image/webp", 0.85)
+  })
+}
+
+export async function uploadAvatar(file: File): Promise<User> {
+  const blob = await shrinkImage(file)
+
+  const body = new FormData()
+  body.append("file", blob, "avatar.webp")
+
+  const user = await request<BackendUser>(AUTH_URL, "/auth/me/avatar", {
+    method: "POST",
+    body,
+  })
+
+  return toUser(user)
+}
+
+export async function deleteAvatar(): Promise<User> {
+  const user = await request<BackendUser>(AUTH_URL, "/auth/me/avatar", {
+    method: "DELETE",
+  })
+
+  return toUser(user)
+}
+
+/**
+ * The stored avatar as an object URL.
+ *
+ * GET /auth/me/avatar needs the Bearer token, and an <img src> cannot send
+ * headers, so the bytes are fetched here and wrapped in a blob URL. Revoke it
+ * with URL.revokeObjectURL when the component unmounts.
+ */
+export async function fetchAvatarObjectUrl(): Promise<string | null> {
+  const response = await fetch(`${AUTH_URL}/auth/me/avatar`, {
+    headers: authorizationHeader(),
+  })
+
+  if (!response.ok) return null
+
+  return URL.createObjectURL(await response.blob())
+}
+
 export async function changePassword(
   currentPassword: string,
   newPassword: string,
@@ -608,4 +694,86 @@ export async function changePassword(
       new_password: newPassword,
     }),
   })
+}
+
+/* ---------------- vision board ---------------- */
+
+type BackendVisionItem = {
+  id: string
+  caption: string | null
+  x: number
+  y: number
+}
+
+function toVisionItem(item: BackendVisionItem): VisionItem {
+  return { id: item.id, caption: item.caption, x: item.x, y: item.y }
+}
+
+export async function getVisionItems(): Promise<VisionItem[]> {
+  const items = await request<BackendVisionItem[]>(MAIN_URL, "/vision-items")
+
+  return items.map(toVisionItem)
+}
+
+export async function addVisionFromUpload(file: File): Promise<VisionItem> {
+  const body = new FormData()
+  body.append("file", file, file.name || "vision.webp")
+
+  const item = await request<BackendVisionItem>(MAIN_URL, "/vision-items/upload", {
+    method: "POST",
+    body,
+  })
+
+  return toVisionItem(item)
+}
+
+export async function addVisionFromUrl(
+  imageUrl: string,
+  caption?: string,
+): Promise<VisionItem> {
+  const item = await request<BackendVisionItem>(MAIN_URL, "/vision-items", {
+    method: "POST",
+    body: JSON.stringify({ image_url: imageUrl, caption: caption ?? null }),
+  })
+
+  return toVisionItem(item)
+}
+
+export async function moveVisionItem(
+  id: string,
+  position: { x: number; y: number },
+): Promise<VisionItem> {
+  const item = await request<BackendVisionItem>(MAIN_URL, `/vision-items/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(position),
+  })
+
+  return toVisionItem(item)
+}
+
+export async function updateVisionCaption(
+  id: string,
+  caption: string,
+): Promise<VisionItem> {
+  const item = await request<BackendVisionItem>(MAIN_URL, `/vision-items/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ caption }),
+  })
+
+  return toVisionItem(item)
+}
+
+export async function deleteVisionItem(id: string): Promise<void> {
+  await request<void>(MAIN_URL, `/vision-items/${id}`, { method: "DELETE" })
+}
+
+/** Vision images need the token, so they are fetched and wrapped in blob URLs. */
+export async function fetchVisionImage(id: string): Promise<string | null> {
+  const response = await fetch(`${MAIN_URL}/vision-items/${id}/image`, {
+    headers: authorizationHeader(),
+  })
+
+  if (!response.ok) return null
+
+  return URL.createObjectURL(await response.blob())
 }

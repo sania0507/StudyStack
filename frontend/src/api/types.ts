@@ -23,6 +23,8 @@ export type Domain = {
   name: string
   colour: string // a token name, e.g. "violet"
   minutesThisWeek: number
+  /** A daily routine: its tasks untick themselves each new day. */
+  repeatsDaily: boolean
 }
 
 export type Subtask = {
@@ -48,4 +50,13 @@ export type Session = {
   domainId: string
   minutes: number
   finishedAt: string // ISO string
+}
+
+export type VisionItem = {
+  id: string
+  caption: string | null
+  /** Percentage of the board width, 0..100. */
+  x: number
+  /** Percentage of the board height, 0..100. */
+  y: number
 }

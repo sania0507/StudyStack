@@ -14,6 +14,7 @@ from routers import (
     sessions as sessions_router,
     subtasks as subtasks_router,
     tasks as tasks_router,
+    vision as vision_router,
 )
 from settings import settings
 
@@ -51,3 +52,4 @@ app.include_router(subtasks_router.router)
 app.include_router(reminders_router.router)
 app.include_router(sessions_router.router)
 app.include_router(analytics_router.router)
+app.include_router(vision_router.router)
