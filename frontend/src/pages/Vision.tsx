@@ -131,6 +131,9 @@ export default function Vision() {
     const target = event.currentTarget as HTMLElement
     const rect = target.getBoundingClientRect()
 
+    // Capture on the element that received the press. For a resize that is the
+    // handle, which is a child of the tile, so the pointer events keep coming
+    // even when the cursor leaves the little circle.
     target.setPointerCapture(event.pointerId)
 
     setSelected(item.id)
@@ -485,14 +488,20 @@ function VisionTile({
             <Trash2 size={13} />
           </button>
 
-          {/* Drag this corner to resize. It stops propagation so the tile does
-              not also start moving underneath the pointer. */}
+          {/* Drag this corner to resize.
+              stopPropagation is essential: passing the handler down does NOT
+              stop the event also reaching the tile's own onPointerDown, and
+              whichever handler ran last won. That is why the handle used to
+              just drag the tile instead of resizing it. */}
           <div
             role="button"
             tabIndex={0}
             aria-label="Resize this image"
             title="Drag to resize"
-            onPointerDown={onResizeStart}
+            onPointerDown={(event) => {
+              event.stopPropagation()
+              onResizeStart(event)
+            }}
             style={{ touchAction: "none" }}
             className="absolute -bottom-2 -right-2 grid h-6 w-6 cursor-nwse-resize place-items-center rounded-full border border-violet-soft/60 bg-base text-violet-soft shadow-lg"
           >
