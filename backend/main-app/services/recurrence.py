@@ -7,6 +7,7 @@ the tick is cleared.
 """
 
 from datetime import date, datetime
+import uuid
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -46,8 +47,17 @@ def reset_recurring_tasks(db: Session, user_id, today: date | None = None) -> in
     return result.rowcount or 0
 
 
-def record_completion(db: Session, task: Task, today: date | None = None) -> None:
-    """Logs that a task was finished today. Safe to call twice."""
+def record_completion(
+    db: Session,
+    task: Task,
+    user_id,
+    today: date | None = None,
+) -> None:
+    """Logs that a task was finished today. Safe to call twice.
+
+    user_id is written here rather than derived from the task later, because
+    the task (and its domain) can be deleted and this row has to outlive both.
+    """
     today = today or date.today()
 
     exists = db.scalar(
@@ -62,7 +72,8 @@ def record_completion(db: Session, task: Task, today: date | None = None) -> Non
 
     db.add(
         TaskCompletion(
-            id=__import__("uuid").uuid4(),
+            id=uuid.uuid4(),
+            user_id=user_id,
             task_id=task.id,
             completed_on=today,
         )

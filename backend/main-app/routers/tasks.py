@@ -156,9 +156,10 @@ def update_task(
         )
 
         # Log the day it was finished. For recurring tasks the tick is cleared
-        # tomorrow, so this row is the only lasting record.
+        # tomorrow, so this row is the only lasting record — and it carries the
+        # owner, so it survives the task and domain being deleted.
         if task.completed:
-            record_completion(db, existing_task)
+            record_completion(db, existing_task, user_id)
 
     db.commit()
     db.refresh(existing_task)

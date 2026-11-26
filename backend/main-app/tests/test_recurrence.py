@@ -1,6 +1,7 @@
 """Daily routines: the tick resets tomorrow, the history does not."""
 
 from datetime import date, datetime, timedelta
+from uuid import UUID
 
 from models import TaskCompletion
 from services.recurrence import reset_recurring_tasks
@@ -99,7 +100,20 @@ def test_the_log_keeps_one_row_per_day(client, db_session):
     client.patch(f"/tasks/{task['id']}", json={"completed": True})
 
     rows = db_session.query(TaskCompletion).filter(
-        TaskCompletion.task_id == __import__("uuid").UUID(task["id"])
+        TaskCompletion.task_id == UUID(task["id"])
     ).all()
 
     assert len(rows) == 1
+
+
+def test_the_log_records_the_owner(client, db_session, user_a):
+    """The row must carry user_id: it has to outlive the task and the domain."""
+    domain = make_domain(client, repeats=True)
+    task = make_task(client, domain["id"], "Fajr")
+
+    client.patch(f"/tasks/{task['id']}", json={"completed": True})
+
+    row = db_session.query(TaskCompletion).one()
+
+    assert row.user_id == user_a
+    assert row.task_id == UUID(task["id"])

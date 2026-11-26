@@ -511,8 +511,10 @@ export async function createSession(input: {
 }): Promise<Session> {
   const session = await request<{
     id: string
-    domain_id: string
+    domain_id: string | null
     task_id: string | null
+    domain_name: string | null
+    task_title: string | null
     duration_seconds: number
     finished_at: string
   }>(MAIN_URL, "/sessions", {
@@ -528,6 +530,8 @@ export async function createSession(input: {
     id: session.id,
     domainId: session.domain_id,
     taskId: session.task_id,
+    domainName: session.domain_name,
+    taskTitle: session.task_title,
     durationSeconds: session.duration_seconds,
     finishedAt: session.finished_at,
   }
@@ -537,8 +541,10 @@ export async function getSessions(): Promise<Session[]> {
   const sessions = await request<
     {
       id: string
-      domain_id: string
+      domain_id: string | null
       task_id: string | null
+      domain_name: string | null
+      task_title: string | null
       duration_seconds: number
       finished_at: string
     }[]
@@ -548,12 +554,25 @@ export async function getSessions(): Promise<Session[]> {
     id: session.id,
     domainId: session.domain_id,
     taskId: session.task_id,
+    domainName: session.domain_name,
+    taskTitle: session.task_title,
     durationSeconds: session.duration_seconds,
     finishedAt: session.finished_at,
   }))
 }
 
 /* ---------------- analytics ---------------- */
+
+/** One domain's progress, measured in subtasks where the domain has any. */
+export type DomainProgress = {
+  domainId: string
+  name: string
+  totalTasks: number
+  completedTasks: number
+  totalSubtasks: number
+  completedSubtasks: number
+  completionPercent: number
+}
 
 export type AnalyticsSummary = {
   hoursPerWeek: number
@@ -564,13 +583,7 @@ export type AnalyticsSummary = {
   daysWithSessions: number
   sessionsPerDay: number
   weekdayMinutes: { day: string; minutes: number }[]
-  domainCompletion: {
-    domainId: string
-    name: string
-    totalTasks: number
-    completedTasks: number
-    completionPercent: number
-  }[]
+  domainCompletion: DomainProgress[]
   heatmap: { date: string; minutes: number; tasksCompleted: number }[]
   /** Seconds recorded per task, for "2h 14m on this" on a task row. */
   taskTotals: { taskId: string; seconds: number }[]
@@ -591,6 +604,8 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
       name: string
       total_tasks: number
       completed_tasks: number
+      total_subtasks: number
+      completed_subtasks: number
       completion_percent: number
     }[]
     heatmap: { day: string; minutes: number; tasks_completed: number }[]
@@ -614,6 +629,8 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
       name: entry.name,
       totalTasks: entry.total_tasks,
       completedTasks: entry.completed_tasks,
+      totalSubtasks: entry.total_subtasks,
+      completedSubtasks: entry.completed_subtasks,
       completionPercent: entry.completion_percent,
     })),
     heatmap: summary.heatmap.map((entry) => ({

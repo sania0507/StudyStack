@@ -18,8 +18,13 @@ class StudySessionCreate(BaseModel):
 class StudySessionOut(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
-    domain_id: uuid.UUID
+    # Null once the domain has been deleted: the block stays, the link goes.
+    domain_id: uuid.UUID | None
     task_id: uuid.UUID | None
+    # Snapshots taken when the block was recorded, so the activity feed can
+    # still say what a deleted-domain session was.
+    domain_name: str | None = None
+    task_title: str | None = None
     duration_seconds: int
     finished_at: datetime
 

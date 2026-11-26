@@ -31,6 +31,8 @@ def create_study_session(
         raise HTTPException(status_code=404, detail="Domain not found")
 
     # If a task was named, prove it is the caller's and lives in that domain.
+    task = None
+
     if session.task_id is not None:
         owned_task = db.scalar(
             select(Task).where(
@@ -42,11 +44,17 @@ def create_study_session(
         if owned_task is None:
             raise HTTPException(status_code=404, detail="Task not found")
 
+        task = owned_task
+
     new_session = StudySession(
         id=uuid.uuid4(),
         user_id=user_id,
         domain_id=session.domain_id,
         task_id=session.task_id,
+        # Snapshots, so this block still describes itself after the domain or
+        # task is deleted. The domain is the caller's, checked above.
+        domain_name=existing_domain.name,
+        task_title=task.title if task is not None else None,
         duration_seconds=session.duration_seconds,
         finished_at=datetime.now(),
     )

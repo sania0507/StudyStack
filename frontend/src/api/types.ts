@@ -47,9 +47,13 @@ export type Task = {
 
 export type Session = {
   id: string
-  domainId: string
+  /** Null once the domain was deleted: the block survives, the link goes. */
+  domainId: string | null
   /** Null for a block timed against the domain only. */
   taskId: string | null
+  /** Name captured when the block was recorded, so history outlives deletes. */
+  domainName: string | null
+  taskTitle: string | null
   durationSeconds: number
   finishedAt: string // ISO string
 }
