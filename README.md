@@ -21,21 +21,21 @@ Two FastAPI services, one React frontend, one PostgreSQL database. Containerised
 <table>
   <tr>
     <td width="50%">
-      <img src="https://github.com/user-attachments/assets/ae260e3d-a5f2-4327-afcb-977145852177" alt="Dashboard, with domains, tasks and the focus timer" />
-      <br /><sub><b>Dashboard</b> — domains, tasks and the focus timer</sub>
+      <img width="959" height="411" alt="image" src="https://github.com/user-attachments/assets/794a09b6-4e36-45bd-8cdd-ffb24c1a859b" />
+     <br /><sub><b>Dashboard</b> — domains, tasks and the focus timer</sub>
     </td>
     <td width="50%">
-      <img src="https://github.com/user-attachments/assets/6d86da99-85a2-4ae1-ac16-21f419a5d2a2" alt="Dashboard, with the timer running" />
+      <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/a5ff5d1a-df35-4323-8e45-543d0aa77b2a" />
       <br /><sub><b>Dashboard</b> — a block in progress</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="https://github.com/user-attachments/assets/1750454f-763b-41df-846f-9e911af21d78" alt="Analytics, with the weekly bars and the activity heatmap" />
+      <img width="956" height="418" alt="image" src="https://github.com/user-attachments/assets/7cf3b073-9bbf-46e7-8e68-849e473ac436" />
       <br /><sub><b>Analytics</b> — weekly split and the year heatmap</sub>
     </td>
     <td width="50%">
-      <img src="https://github.com/user-attachments/assets/aa553380-f79e-4e39-a103-6901bccb715d" alt="Analytics, with the activity feed" />
+      <img width="959" height="410" alt="image" src="https://github.com/user-attachments/assets/8be0ab4b-dd79-4b8b-a9d8-29712341b5a2" />
       <br /><sub><b>Analytics</b> — the recorded-session feed</sub>
     </td>
   </tr>
