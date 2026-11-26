@@ -40,6 +40,10 @@ def analytics_summary(
         select(StudySession).where(StudySession.user_id == user_id)
     ).all()
 
+    # Two sources of "something happened today": timed blocks and ticked tasks.
+    # Read once, then used for both the streak and the heatmap.
+    completions = tasks_completed_by_day(db, user_id)
+
     total_seconds = sum(session.duration_seconds for session in sessions)
     # The API keeps talking in minutes because that is the chart's unit; the
     # storage is seconds.
@@ -55,7 +59,7 @@ def analytics_summary(
 
     return AnalyticsSummary(
         hours_per_week=hours_per_week(sessions),
-        streak=current_streak(sessions),
+        streak=current_streak(sessions, completions=completions),
         overdue_count=overdue_task_count(db, user_id),
         total_minutes=total_minutes,
         total_sessions=len(sessions),
@@ -70,6 +74,6 @@ def analytics_summary(
         heatmap=heatmap(
             sessions,
             heatmap_days,
-            tasks_completed_by_day(db, user_id),
+            completions,
         ),
     )

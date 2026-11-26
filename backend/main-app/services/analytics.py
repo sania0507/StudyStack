@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from models import Domain, StudySession, Task, TaskCompletion
+from models import Domain, StudySession, Subtask, Task, TaskCompletion
 
 
 # Analytics lives inside the task service because it only ever reads tables
@@ -36,26 +36,43 @@ def seconds_by_day(
     return totals
 
 
-# Counts consecutive days that ended with at least one session.
+# Days on which the user did anything at all: a timer session, or a task
+# ticked. Ticking a task is work, even with no timer running, so a streak that
+# read only sessions reported 0 for someone who had done nothing but finish
+# tasks all week.
+def active_days(
+    sessions: list[StudySession],
+    completions: dict[date, int] | None = None,
+) -> set[date]:
+    days = set(seconds_by_day(sessions))
+
+    if completions:
+        days |= {day for day, count in completions.items() if count}
+
+    return days
+
+
+# Counts consecutive days that ended with at least one session or completion.
 def current_streak(
     sessions: list[StudySession],
     today: date | None = None,
+    completions: dict[date, int] | None = None,
 ) -> int:
     today = today or date.today()
 
-    totals = seconds_by_day(sessions)
+    days = active_days(sessions, completions)
 
-    if not totals:
+    if not days:
         return 0
 
     # A streak may start yesterday, so studying today is not required for a
     # streak that is still alive.
     cursor = today
-    if cursor not in totals:
+    if cursor not in days:
         cursor = today - timedelta(days=1)
 
     streak = 0
-    while cursor in totals:
+    while cursor in days:
         streak += 1
         cursor -= timedelta(days=1)
 
@@ -136,30 +153,92 @@ def weekday_minutes(sessions: list[StudySession]) -> list[dict]:
     ]
 
 
+def task_progress(task: Task, subtask_total: int, subtask_done: int) -> bool:
+    """Was this task finished?
+
+    Hybrid rule, because a task can be tracked either way:
+    - with subtasks: done only when every subtask is ticked, so "5 topics, 4
+      done" is not a finished subject;
+    - without subtasks: fall back to the task's own tick, so a plain to-do is
+      not stuck at 0% forever.
+    """
+    if subtask_total:
+        return subtask_done >= subtask_total
+
+    return bool(task.completed)
+
+
 def domain_completion(db: Session, user_id: uuid.UUID) -> list[dict]:
+    """Per-domain progress, counted in subtasks where they exist.
+
+    Domains are loaded with their tasks and subtasks in three queries rather
+    than one per domain, so this stays flat as the account grows.
+    """
     domains = db.scalars(
         select(Domain).where(Domain.user_id == user_id)
     ).all()
 
+    # No domains means no ids to filter on; `IN ()` is not valid SQL, so return
+    # before building the queries.
+    if not domains:
+        return []
+
+    tasks_by_domain: dict[uuid.UUID, list[Task]] = {}
+
+    for task in db.scalars(
+        select(Task).where(Task.domain_id.in_([domain.id for domain in domains]))
+    ):
+        tasks_by_domain.setdefault(task.domain_id, []).append(task)
+
+    all_task_ids = [task.id for tasks in tasks_by_domain.values() for task in tasks]
+
+    subtasks_by_task: dict[uuid.UUID, list[Subtask]] = {}
+
+    if all_task_ids:
+        for subtask in db.scalars(
+            select(Subtask).where(Subtask.task_id.in_(all_task_ids))
+        ):
+            subtasks_by_task.setdefault(subtask.task_id, []).append(subtask)
+
     progress = []
 
     for domain in domains:
-        tasks = db.scalars(
-            select(Task).where(Task.domain_id == domain.id)
-        ).all()
+        tasks = tasks_by_domain.get(domain.id, [])
 
-        total = len(tasks)
-        completed = len([task for task in tasks if task.completed])
+        total_tasks = len(tasks)
+        completed_tasks = 0
+        total_subtasks = 0
+        completed_subtasks = 0
 
-        # Guard against dividing by zero for a domain with no tasks.
-        percent = round((completed / total) * 100, 1) if total else 0.0
+        for task in tasks:
+            subtasks = subtasks_by_task.get(task.id, [])
+            done = len([s for s in subtasks if s.completed])
+
+            total_subtasks += len(subtasks)
+            completed_subtasks += done
+
+            if task_progress(task, len(subtasks), done):
+                completed_tasks += 1
+
+        # Progress is measured in subtasks when the domain has any, because
+        # that is the finer unit — finishing 4 of 5 topics is 80%, not 0% or
+        # 100%. A domain with no subtasks at all falls back to its tasks, so a
+        # plain to-do list still moves.
+        if total_subtasks:
+            percent = round((completed_subtasks / total_subtasks) * 100, 1)
+        elif total_tasks:
+            percent = round((completed_tasks / total_tasks) * 100, 1)
+        else:
+            percent = 0.0
 
         progress.append(
             {
                 "domain_id": domain.id,
                 "name": domain.name,
-                "total_tasks": total,
-                "completed_tasks": completed,
+                "total_tasks": total_tasks,
+                "completed_tasks": completed_tasks,
+                "total_subtasks": total_subtasks,
+                "completed_subtasks": completed_subtasks,
                 "completion_percent": percent,
             }
         )
@@ -178,6 +257,11 @@ def tasks_completed_by_day(db: Session, user_id: uuid.UUID) -> dict[date, int]:
     # a task that is still ticked, and the log for tasks that have since been
     # reset by a recurring domain. Taking the larger per day avoids
     # double-counting a task that is both ticked now and logged today.
+    #
+    # The flag source joins through domains, so deleting a domain drops the
+    # tasks that still carry a flag. The log source is scoped by its own
+    # user_id, so it survives the delete: that is where the history lives once
+    # a domain is gone.
     from_flag = dict(
         db.execute(
             select(func.date(Task.completed_at), func.count())
@@ -194,10 +278,7 @@ def tasks_completed_by_day(db: Session, user_id: uuid.UUID) -> dict[date, int]:
     from_log = dict(
         db.execute(
             select(TaskCompletion.completed_on, func.count())
-            .select_from(TaskCompletion)
-            .join(Task, TaskCompletion.task_id == Task.id)
-            .join(Domain, Task.domain_id == Domain.id)
-            .where(Domain.user_id == user_id)
+            .where(TaskCompletion.user_id == user_id)
             .group_by(TaskCompletion.completed_on)
         ).all()
     )
