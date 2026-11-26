@@ -1,14 +1,14 @@
 # Root-level Dockerfile.
 #
-# Why this exists: Render, Railway and Fly all auto-detect a build by looking
-# at the repository root. Without a Dockerfile here they scan, find only
-# folders, and fail with "could not determine how to build the app".
+# Why this exists: Railway (and Render and Fly) auto-detects a build by looking
+# at the repository root. Without a Dockerfile here it scans, finds only
+# folders, and fails with "could not determine how to build the app".
 #
 # This file is a thin delegate: the real image definition lives in
 # backend/Dockerfile. Because the build context is the repo root, the COPY
 # paths below carry the backend/ prefix.
 #
-# Deploy any of the three services from this file, changing only SERVICE_NAME:
+# Both services deploy from this file, told apart only by SERVICE_NAME:
 #   SERVICE_NAME=auth-service      (auth API)
 #   SERVICE_NAME=main-app          (tasks, subtasks, reminders, sessions)
 
