@@ -14,6 +14,11 @@ class DomainProgress(BaseModel):
     name: str
     total_tasks: int
     completed_tasks: int
+    # Tracked at subtask granularity because that is the unit people actually
+    # tick off ("LR0, SLR, CLR"). completion_percent measures subtasks when the
+    # domain has any, and falls back to tasks when it has none.
+    total_subtasks: int = 0
+    completed_subtasks: int = 0
     completion_percent: float
 
 

@@ -83,7 +83,7 @@ Two FastAPI services, one React frontend, one PostgreSQL database. Containerised
 |---|---|
 | **Deadlines** | Domains → tasks → subtasks. Optional due dates, `overdue` derived on read. |
 | **Focus timer** | A finished block writes a study session against a domain. |
-| **Analytics** | Hours per week, streak, overdue count, weekday split, per-domain completion, year heatmap. |
+| **Analytics** | Hours per week, streak, overdue count, weekday split, per-domain completion (measured in subtasks where a domain has them), year heatmap. A day counts towards the streak if you ran a focus block **or** ticked a task. |
 | **Reminders** | Per-task reminders fired by a 60-second scheduler that claims each row before it fires. |
 | **Routines** | A domain marked `repeats_daily` untick itself each morning, with the history kept. |
 | **Notes** | Folders, a date timeline, drag-to-reorder, pinning, search, markdown. |
@@ -162,13 +162,13 @@ domains
   │     ├──< subtasks
   │     ├──< reminders
   │     └──< task_completions    unique per (task, day) — routine history
-  └──< study_sessions
+  └──< study_sessions            keeps domain_name/task_title snapshots
 
 note_folders ──< notes           separate aggregate: a domain delete
 vision_items                     must not take a diary entry with it
 ```
 
-Deleting a domain cascades to its tasks, and from there to subtasks, reminders and completions; sessions cascade from the domain directly. No rows are left orphaned.
+Deleting a domain deletes the study graph — its tasks, and from there subtasks and reminders — but it does **not** delete the history. `study_sessions` and `task_completions` use `ON DELETE SET NULL`: the row survives with its link cleared, so totals, the heatmap and the streak still count hours you really spent and days you really ticked something. Sessions carry a snapshot of the domain name and task title taken when the block was recorded, so the activity feed can still say *what* a deleted-domain session was; `task_completions` carries its own `user_id` for the same reason. No rows are left orphaned, and none are quietly discarded.
 
 `overdue` is never stored. It is computed from `due_date`, `completed` and the current time on every read, so it can never disagree with the rows.
 
@@ -186,6 +186,10 @@ Deleting a domain cascades to its tasks, and from there to subtasks, reminders a
 **Refresh tokens rotate, and reuse revokes the family.** Access tokens are 30-minute HS256 JWTs, verified by signature alone, so neither service touches the database to authenticate a request. The refresh token is 30 days, opaque, and stored as a SHA-256 hash — not Argon2, deliberately: it is 48 random bytes, so there is nothing to brute force and every refresh needs a fast lookup. Reuse of an already-rotated token means the client or an attacker holds it, and one row cannot say which, so the whole `family_id` is revoked and both parties log in again. On the client, refresh is single-flight: five simultaneous 401s produce one refresh, not five.
 
 **Routines reset on read.** A `repeats_daily` domain's tasks are unticked when `GET /tasks` sees a completion from before today. That makes the reset idempotent and needs no scheduler. Every completion also writes a `task_completions` row, so clearing the tick does not erase the evidence of the work; the heatmap reads both sources and takes the larger per day.
+
+**A streak counts days you did something, not just days you timed.** The streak used to read `study_sessions` alone, so an account that ticked tasks every day and never started the timer reported 0 — the heatmap counted the ticks and the streak did not, which is worse than either behaviour alone. Both now read the same two sources: a day is active if it has a timed block or a ticked task.
+
+**History outlives the thing it happened in.** Deleting a domain is a statement about the current plan, not a retraction of the past, so it removes the domain and its tasks while `study_sessions` and `task_completions` survive with their foreign keys set to `NULL`. Snapshots (`domain_name`, `task_title`) are written at record time so a surviving row can still name itself. The consequence to be aware of: per-domain completion percentage naturally stops listing a domain that no longer exists, because there is no domain left to compute it for.
 
 **Notes: `created_at` is the timeline, `position` is not a date.** Drag-to-reorder sets `position` and never touches `created_at`, and editing only moves `updated_at` — so the date beside a note says when it was written and dragging it is not editing. Markdown is rendered by a small escape-first function rather than a library, so a note cannot inject markup.
 
@@ -262,7 +266,7 @@ cd backend/auth-service
 TEST_DATABASE_URL=postgresql+psycopg://studystack_user:PASSWORD@localhost:5432/studystack_auth_test pytest
 ```
 
-Covered: registration and duplicate email, login and wrong password, refresh rotation and reuse detection revoking the family, token expiry, logout idempotency, profile and password change; CRUD for every resource including notes and the vision board; cross-user isolation on read, update and delete; completion timestamps; overdue derivation across all four due-date cases; reminder idempotency; domain cascade to tasks and nested children; routine reset and the `task_completions` history; analytics windowing and scoping.
+Covered: registration and duplicate email, login and wrong password, refresh rotation and reuse detection revoking the family, token expiry, logout idempotency, profile and password change; CRUD for every resource including notes and the vision board; cross-user isolation on read, update and delete; completion timestamps; overdue derivation across all four due-date cases; reminder idempotency; domain cascade to tasks and nested children, and the history that survives the delete; the streak counting ticked tasks as well as timed blocks; routine reset and the `task_completions` history; analytics windowing and scoping.
 
 Create the test databases once:
 
