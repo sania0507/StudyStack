@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models import Task
 from schemas import TaskOut
@@ -9,7 +9,7 @@ def is_overdue(task: Task) -> bool:
 
     return (
         task.due_date is not None
-        and task.due_date < datetime.now()
+        and task.due_date < datetime.now(timezone.utc)
         and not task.completed
     )
 

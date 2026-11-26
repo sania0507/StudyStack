@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -56,7 +56,9 @@ def create_study_session(
         domain_name=existing_domain.name,
         task_title=task.title if task is not None else None,
         duration_seconds=session.duration_seconds,
-        finished_at=datetime.now(),
+        # UTC, not naive local time: the column is timestamptz, and a naive
+        # value would be interpreted as the reader's wall clock.
+        finished_at=datetime.now(timezone.utc),
     )
 
     db.add(new_session)

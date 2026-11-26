@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -101,14 +101,14 @@ def get_tasks(
     # expressed as a predicate: the database does the filtering instead of
     # shipping every row to Python first.
     if overdue is not None:
-        is_past_due = Task.due_date.is_not(None) & (Task.due_date < datetime.now())
+        is_past_due = Task.due_date.is_not(None) & (Task.due_date < datetime.now(timezone.utc))
 
         if overdue:
             query = query.where(is_past_due, Task.completed.is_(False))
         else:
             query = query.where(
                 Task.due_date.is_(None)
-                | (Task.due_date >= datetime.now())
+                | (Task.due_date >= datetime.now(timezone.utc))
                 | Task.completed.is_(True)
             )
 
@@ -152,7 +152,7 @@ def update_task(
     if task.completed is not None:
         existing_task.completed = task.completed
         existing_task.completed_at = (
-            datetime.now() if task.completed else None
+            datetime.now(timezone.utc) if task.completed else None
         )
 
         # Log the day it was finished. For recurring tasks the tick is cleared

@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -28,10 +28,15 @@ class Task(Base):
         nullable=False
     )
 
+    # Both are instants, so both are timestamptz. A naive column would hold the
+    # writer's wall clock, and comparing it against an aware "now" raises
+    # TypeError in Python and shifts the answer in SQL.
     completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True
     )
 
     due_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True
     )

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -51,7 +51,12 @@ class StudySession(Base):
     # distinguish a 5-second test from a 5-minute block.
     duration_seconds: Mapped[int] = mapped_column(nullable=False)
 
+    # timezone=True is not cosmetic. A naive column stores whatever wall-clock
+    # the writer's machine believed, and serialises without an offset - so a
+    # browser in another timezone reads it as *its own* local time and every
+    # "6h ago" is silently wrong. timestamptz stores an absolute instant.
     finished_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False,
         index=True,
     )

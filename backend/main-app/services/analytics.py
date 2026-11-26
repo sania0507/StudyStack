@@ -1,5 +1,5 @@
 import math
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import uuid
 
 from sqlalchemy import func, select
@@ -80,11 +80,17 @@ def current_streak(
 
 
 def week_bounds(today: date | None = None) -> tuple[datetime, datetime]:
+    """Monday 00:00 to the following Monday, as aware UTC instants.
+
+    Aware because study_sessions.finished_at is timestamptz: comparing an aware
+    column against a naive boundary raises TypeError. The window is defined in
+    UTC, matching how finished_at is written.
+    """
     today = today or date.today()
 
     start_of_week = today - timedelta(days=today.weekday())
 
-    start = datetime.combine(start_of_week, time.min)
+    start = datetime.combine(start_of_week, time.min, tzinfo=timezone.utc)
     end = start + timedelta(days=7)
 
     return start, end
@@ -132,7 +138,7 @@ def overdue_task_count(db: Session, user_id: uuid.UUID) -> int:
             Domain.user_id == user_id,
             Task.completed.is_(False),
             Task.due_date.is_not(None),
-            Task.due_date < datetime.now(),
+            Task.due_date < datetime.now(timezone.utc),
         )
     )
 

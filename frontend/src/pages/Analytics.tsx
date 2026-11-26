@@ -35,20 +35,39 @@ function formatMinutes(total: number) {
   return h === 0 ? `${m}m` : `${h}h ${m}m`
 }
 
-// `now` is a real timestamp here — the old version was pinned to a demo date.
+/*
+  Belt and braces for timestamps.
+
+  `new Date("2026-11-26T12:30:00")` — no Z, no offset — is parsed as LOCAL time
+  by every browser. When the API sent naive server timestamps, that made a
+  session recorded seconds ago read as "6h ago" for anyone not on the server's
+  clock. The backend now sends timestamptz, but an environment that has not yet
+  run that migration still emits the naive form, so pin a missing offset to UTC
+  rather than letting the browser guess.
+*/
+function parseTimestamp(iso: string): number {
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso)
+  return new Date(hasZone ? iso : `${iso}Z`).getTime()
+}
+
 function timeAgo(iso: string) {
-  const then = new Date(iso).getTime()
+  const then = parseTimestamp(iso)
+
+  // Clamp at zero: a small clock difference must not print "-1 min ago".
   const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
   if (mins < 1) return "just now"
   if (mins < 60) return `${mins} min ago`
+
   const hrs = Math.round(mins / 60)
   if (hrs < 24) return `${hrs}h ago`
+
   return `${Math.round(hrs / 24)}d ago`
 }
 
+/** "Nov 26", from the same instant the relative label uses. */
 function formatDay(iso: string) {
-  const [, m, d] = iso.split("-")
-  return `${MONTHS_SHORT[Number(m) - 1]} ${Number(d)}`
+  const date = new Date(parseTimestamp(iso))
+  return `${MONTHS_SHORT[date.getMonth()]} ${date.getDate()}`
 }
 
 export default function Analytics() {
@@ -117,7 +136,7 @@ export default function Analytics() {
 
   // Most recent first, capped so the feed stays a feed.
   const recentSessions = [...sessions]
-    .sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime())
+    .sort((a, b) => parseTimestamp(b.finishedAt) - parseTimestamp(a.finishedAt))
     .slice(0, 6)
 
   return (
